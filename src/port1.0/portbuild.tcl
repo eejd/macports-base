@@ -136,11 +136,22 @@ proc portbuild::build_getmaketype {args} {
 
 proc portbuild::build_getjobs {args} {
     global buildmakejobs use_parallel_build
-    # If parallel disabled disabled, return 1
+    # If parallel builds are disabled, return 1.
     if {![tbool use_parallel_build]} {
         ui_debug "port disallows a parallel build, setting build jobs to 1"
         return 1
     }
+
+    # Explicitly configured job counts belong to this port interpreter. The
+    # shared helper uses the macports namespace value, so only delegate the
+    # automatic (zero) case to it.
+    if {[string is integer -strict $buildmakejobs] && $buildmakejobs > 0} {
+        return $buildmakejobs
+    }
+    if {![string is integer -strict $buildmakejobs] || $buildmakejobs < 0} {
+        return 1
+    }
+
     global build.mem_per_job
     set jobs [macports::get_parallel_jobs yes ${build.mem_per_job}]
     if {![string is integer -strict $jobs] || $jobs <= 1} {
