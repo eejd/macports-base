@@ -10,6 +10,10 @@ target_requires ${org.macports.patch} main fetch checksum extract
 target_runpkg ${org.macports.patch} portpatch_run
 
 namespace eval portpatch {
+    proc patch_main {args} {
+        package require portpatch_run 1.0
+        return [_patch_main {*}${args}]
+    }
 }
 
 # Add command patch

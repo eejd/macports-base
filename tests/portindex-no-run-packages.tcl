@@ -39,7 +39,7 @@ try {
     }
     set ::env(TCLLIBPATH) [list $poison_dir]
     try {
-        exec $portindex -e -f -o $output_dir $ports_tree
+        exec -ignorestderr $portindex -e -f -o $output_dir $ports_tree 2>@1
         if {![file exists [file join $output_dir PortIndex]]} {
             error "portindex did not create the isolated PortIndex"
         }
