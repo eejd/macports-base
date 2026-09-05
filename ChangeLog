@@ -3,6 +3,9 @@
 ###
 
 Release 2.13.0 (unreleased)
+    - Added an opt-in shared sccache directory for Rust ports, including
+      sandbox access, startup fallback, and reclaim support. (#58)
+
     - Added a --purge option for 'port clean' that quickly and
       unconditionally deletes all files of the chosen type(s).
       (jmr in 22e1abd)
