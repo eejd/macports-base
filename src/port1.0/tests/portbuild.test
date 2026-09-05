@@ -42,7 +42,7 @@ set build_getjobs_fixture_setup {
     }
 }
 set build_getjobs_fixture_cleanup {
-    global buildmakejobs
+    global buildmakejobs use_parallel_build build.mem_per_job
 
     # Restore modified state
     rename sysctl ""
@@ -77,7 +77,34 @@ test build_getjobs_auto_memlimited {
     set _memsize_fail no
 
     return [portbuild::build_getjobs]
-} -result 5
+} -result 4
+
+test build_getjobs_port_memlimit {
+    Verify that build.mem_per_job caps automatic parallel jobs using floor division.
+} -setup $build_getjobs_fixture_setup -cleanup $build_getjobs_fixture_cleanup -body {
+    global buildmakejobs use_parallel_build build.mem_per_job
+
+    set buildmakejobs 0
+    set use_parallel_build yes
+    set build.mem_per_job 2048
+    set _activecpus 8
+    set _activecpus_fail no
+    set _memsize 7
+    set _memsize_fail no
+
+    return [portbuild::build_getjobs]
+} -result 3
+
+test build_getjobs_parallel_disabled {
+    Verify that a Portfile can always disable parallel builds.
+} -setup $build_getjobs_fixture_setup -cleanup $build_getjobs_fixture_cleanup -body {
+    global buildmakejobs use_parallel_build
+
+    set buildmakejobs 42
+    set use_parallel_build no
+
+    return [portbuild::build_getjobs]
+} -result 1
 
 test build_getjobs_configured {
     Verify that portbuild::build_getjobs correctly returns the number of configured parallel executors

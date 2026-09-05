@@ -136,33 +136,15 @@ proc portbuild::build_getmaketype {args} {
 
 proc portbuild::build_getjobs {args} {
     global buildmakejobs use_parallel_build
-    set jobs $buildmakejobs
     # If parallel disabled disabled, return 1
     if {![tbool use_parallel_build]} {
         ui_debug "port disallows a parallel build, setting build jobs to 1"
-        set jobs 1
+        return 1
     }
-    # if set to '0', use the number of cores for the number of jobs
-    if {$jobs == 0} {
-        macports_try -pass_signal {
-            set jobs [sysctl hw.activecpu]
-        } on error {} {
-            set jobs 2
-            ui_warn "failed to determine the number of available CPUs (probably not supported on this platform)"
-            ui_warn "defaulting to $jobs jobs, consider setting buildmakejobs to a nonzero value in macports.conf"
-        }
-
-        macports_try -pass_signal {
-            set memsize [sysctl hw.memsize]
-            global build.mem_per_job
-            set jobs_limit_mem [expr {int($memsize / (${build.mem_per_job} * 1024 * 1024)) + 1}]
-            if {$jobs > $jobs_limit_mem} {
-                set jobs $jobs_limit_mem
-            }
-        } on error {} {}
-    }
+    global build.mem_per_job
+    set jobs [macports::get_parallel_jobs yes ${build.mem_per_job}]
     if {![string is integer -strict $jobs] || $jobs <= 1} {
-        set jobs 1
+        return 1
     }
     return $jobs
 }
