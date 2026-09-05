@@ -72,6 +72,60 @@ test rustcache_start_server {
 } -result {yes 1 {sccache --start-server >/dev/null} 1 1}
 
 
+test rustcache_start_failure_disables_wrapper {
+    A failed sccache start removes the cache environment so the Rust build can continue uncached.
+} -setup {
+    namespace eval rust {}
+    set UI_PREFIX {}
+    set subport rustcache-test
+    set prefix /opt/local
+    set configure.compiler clang
+    set compiler.fallback {clang}
+    set configure.ccache no
+    set configure.rustcache yes
+    set rustcache_dir [makeDirectory rustcache_start_failure]
+    set rustcache_size 20G
+    set macportsuser [file attributes $rustcache_dir -owner]
+    set portconfigure::no_default_compiler_allowed no
+    set cache_env [list \
+        RUSTC_WRAPPER=${prefix}/bin/sccache \
+        SCCACHE_CACHE_SIZE=${rustcache_size} \
+        SCCACHE_DIR=${rustcache_dir} \
+        SCCACHE_SERVER_UDS=[file join ${rustcache_dir} sccache.sock] \
+        CARGO_INCREMENTAL=0]
+    foreach phase {configure build destroot} {
+        set ${phase}.env [concat KEEP_ME=yes ${cache_env}]
+    }
+    foreach command {elevateToRoot dropPrivileges} {
+        if {[llength [info commands $command]]} {
+            rename $command ${command}_saved
+        }
+        proc $command {args} {}
+    }
+    rename exec exec_real
+    proc exec {args} {
+        return -code error "sccache unavailable"
+    }
+} -body {
+    portconfigure::configure_start
+    list \
+        ${configure.rustcache} \
+        ${configure.env} \
+        ${build.env} \
+        ${destroot.env}
+} -cleanup {
+    rename exec {}
+    rename exec_real exec
+    foreach command {elevateToRoot dropPrivileges} {
+        rename $command {}
+        if {[llength [info commands ${command}_saved]]} {
+            rename ${command}_saved $command
+        }
+    }
+    namespace delete rust
+} -result {no KEEP_ME=yes KEEP_ME=yes KEEP_ME=yes}
+
+
 test rustcache_sandbox_profile {
     Rust cache builds can write the cache and connect to the configured Unix socket while network sandboxing is active.
 } -setup {

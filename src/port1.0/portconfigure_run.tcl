@@ -8,6 +8,26 @@ package require portprogress 1.0
 
 namespace eval portconfigure {
 
+proc disable_rustcache_environment {} {
+    global prefix rustcache_dir rustcache_size
+
+    set cache_env [list \
+        RUSTC_WRAPPER=${prefix}/bin/sccache \
+        SCCACHE_CACHE_SIZE=${rustcache_size} \
+        SCCACHE_DIR=${rustcache_dir} \
+        SCCACHE_SERVER_UDS=[file join ${rustcache_dir} sccache.sock] \
+        CARGO_INCREMENTAL=0]
+    foreach phase {configure build destroot} {
+        upvar #0 ${phase}.env phase_env
+        foreach entry ${cache_env} {
+            set index [lsearch -exact ${phase_env} ${entry}]
+            if {${index} >= 0} {
+                lpop phase_env ${index}
+            }
+        }
+    }
+}
+
 proc configure_start {args} {
     global UI_PREFIX subport configure.compiler compiler.fallback configure.ccache configure.rustcache
 
@@ -87,6 +107,7 @@ proc configure_start {args} {
             } result]} {
             ui_warn "rustcache_dir ${rustcache_dir} could not be created; disabling Rust cache: $result"
             set configure.rustcache no
+            disable_rustcache_environment
         }
         dropPrivileges
 
@@ -109,6 +130,7 @@ proc configure_start {args} {
                 } result]} {
                 ui_warn "rustcache_dir ${rustcache_dir} could not be initialized; disabling Rust cache: $result"
                 set configure.rustcache no
+                disable_rustcache_environment
             }
         }
     }
