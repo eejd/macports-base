@@ -21,18 +21,19 @@ test portindex-deferred-loading-1.0 {
     }
     close $fd
 
-    set had_tcllibpath [info exists env(TCLLIBPATH)]
-    if {$had_tcllibpath} {
-        set saved_tcllibpath $env(TCLLIBPATH)
+    set path_var MACPORTS_TEST_TCLLIBPATH_PREFIX
+    set had_path_prefix [info exists env($path_var)]
+    if {$had_path_prefix} {
+        set saved_path_prefix $env($path_var)
     }
-    set env(TCLLIBPATH) [list $poison_dir]
+    set env($path_var) [list $poison_dir]
     try {
-        port_index
+        port_index -e
     } finally {
-        if {$had_tcllibpath} {
-            set env(TCLLIBPATH) $saved_tcllibpath
+        if {$had_path_prefix} {
+            set env($path_var) $saved_path_prefix
         } else {
-            unset env(TCLLIBPATH)
+            unset env($path_var)
         }
     }
 

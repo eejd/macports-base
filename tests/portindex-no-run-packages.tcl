@@ -24,6 +24,8 @@ file delete $poison_file
 set poison_dir [file normalize "${poison_file}-run-packages"]
 file mkdir $poison_dir
 try {
+    set output_dir [file join $poison_dir index]
+    file mkdir $output_dir
     set fd [open [file join $poison_dir pkgIndex.tcl] w]
     foreach run_file [glob -tails -directory [file join $top_srcdir src port1.0] *_run.tcl] {
         set runpkg [file rootname $run_file]
@@ -37,7 +39,10 @@ try {
     }
     set ::env(TCLLIBPATH) [list $poison_dir]
     try {
-        exec $portindex -e $ports_tree
+        exec $portindex -e -f -o $output_dir $ports_tree
+        if {![file exists [file join $output_dir PortIndex]]} {
+            error "portindex did not create the isolated PortIndex"
+        }
     } finally {
         if {$had_tcllibpath} {
             set ::env(TCLLIBPATH) $saved_tcllibpath
