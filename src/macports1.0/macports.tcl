@@ -49,7 +49,7 @@ namespace eval macports {
         rsync_server rsync_options rsync_dir \
         startupitem_autostart startupitem_type startupitem_install \
         place_worksymlink xcodeversion xcodebuildcmd xcodecltversion xcode_license_unaccepted \
-        configureccache ccache_size configuredistcc configurepipe buildnicevalue buildmakejobs \
+        configureccache ccache_size configurerustcache rustcache_size configuredistcc configurepipe buildnicevalue buildmakejobs \
         universal_archs build_arch macosx_sdk_version macosx_deployment_target \
         macportsuser proxy_override_env proxy_http proxy_https proxy_ftp proxy_rsync proxy_skip \
         master_site_local patch_site_local archive_site_local fetch_credentials fetch_threads \
@@ -59,7 +59,7 @@ namespace eval macports {
             dict set bootstrap_options $opt {}
     }
     # Config file options that are a filesystem path and should be fully resolved
-    foreach opt [list applications_dir archive_sites_conf ccache_dir developer_dir \
+    foreach opt [list applications_dir archive_sites_conf ccache_dir rustcache_dir developer_dir \
                       frameworks_dir packagemaker_path portdbpath prefix pubkeys_conf \
                       sources_conf variants_conf] {
         dict set bootstrap_options $opt is_path 1
@@ -74,7 +74,7 @@ namespace eval macports {
         portautoclean portimage_mode porttrace keeplogs portverbose destroot_umask \
         rsync_server rsync_options rsync_dir startupitem_autostart startupitem_type startupitem_install \
         place_worksymlink macportsuser sudo_user \
-        configureccache ccache_dir ccache_size configuredistcc configurepipe buildnicevalue buildmakejobs \
+        configureccache ccache_dir ccache_size configurerustcache rustcache_dir rustcache_size configuredistcc configurepipe buildnicevalue buildmakejobs \
         applications_dir applications_dir_frozen current_phase frameworks_dir frameworks_dir_frozen \
         developer_dir universal_archs build_arch os_arch os_endian os_version os_major os_minor \
         os_platform os_subplatform macos_version macos_version_major macosx_version macosx_sdk_version \
@@ -1065,6 +1065,9 @@ proc mportinit {{up_ui_options {}} {up_options {}} {up_variations {}}} {
         macports::configureccache \
         macports::ccache_dir \
         macports::ccache_size \
+        macports::configurerustcache \
+        macports::rustcache_dir \
+        macports::rustcache_size \
         macports::configuredistcc \
         macports::configurepipe \
         macports::buildnicevalue \
@@ -1646,6 +1649,15 @@ match macports.conf.default."
     if {![info exists ccache_size]} {
         set ccache_size 2G
     }
+    if {![info exists configurerustcache]} {
+        set configurerustcache no
+    }
+    if {![info exists rustcache_dir]} {
+        set rustcache_dir [file join $portdbpath build .rustcache]
+    }
+    if {![info exists rustcache_size]} {
+        set rustcache_size 20G
+    }
     if {![info exists configuredistcc]} {
         set configuredistcc no
     }
@@ -1981,6 +1993,11 @@ match macports.conf.default."
 
     # add ccache to environment
     set env(CCACHE_DIR) $ccache_dir
+
+    # Add the Rust compiler cache settings to the process environment.
+    set env(SCCACHE_DIR) $rustcache_dir
+    set env(SCCACHE_CACHE_SIZE) $rustcache_size
+    set env(SCCACHE_SERVER_UDS) [file join $rustcache_dir sccache.sock]
 
     # load caches on demand
     trace add variable macports::compiler_version_cache read macports::load_compiler_version_cache

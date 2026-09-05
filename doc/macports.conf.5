@@ -241,6 +241,55 @@ T}
 .sp 1
 .RE
 .PP
+configurerustcache
+.RS 4
+Use sccache (Rust compiler cache)\&. Requires that sccache has been installed\&.
+.TS
+tab(:);
+lt lt.
+T{
+\fBDefault:\fR
+T}:T{
+no
+T}
+.TE
+.sp 1
+.RE
+.PP
+rustcache_dir
+.RS 4
+Location where sccache stores its files
+.TS
+tab(:);
+lt lt.
+T{
+\fBDefault:\fR
+T}:T{
+${portdbpath}/build/\&.rustcache
+T}
+.TE
+.sp 1
+.RE
+.PP
+rustcache_size
+.RS 4
+Maximum size sccache may use\&. Use
+\fIG\fR,
+\fIM\fR, or
+\fIK\fR
+suffix for giga\-, mega\- or kilobytes\&.
+.TS
+tab(:);
+lt lt.
+T{
+\fBDefault:\fR
+T}:T{
+20G
+T}
+.TE
+.sp 1
+.RE
+.PP
 configuredistcc
 .RS 4
 Use distcc (distributed compiler)\&. Requires that distcc has been installed\&.

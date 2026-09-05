@@ -94,6 +94,19 @@ ccache_size::
     kilobytes.
     *Default:*;; 2G
 
+configurerustcache::
+    Use sccache (Rust compiler cache). Requires that sccache has been installed.
+    *Default:*;; no
+
+rustcache_dir::
+    Location where sccache stores its files.
+    *Default:*;; $\{portdbpath\}/build/.rustcache
+
+rustcache_size::
+    Maximum size sccache may use. Use 'G', 'M', or 'K' suffix for giga-, mega- or
+    kilobytes.
+    *Default:*;; 20G
+
 configuredistcc::
     Use distcc (distributed compiler). Requires that distcc has been installed.
     *Default:*;; no

@@ -9,7 +9,7 @@ package require portprogress 1.0
 namespace eval portconfigure {
 
 proc configure_start {args} {
-    global UI_PREFIX subport configure.compiler compiler.fallback configure.ccache
+    global UI_PREFIX subport configure.compiler compiler.fallback configure.ccache configure.rustcache
 
     ui_notice "$UI_PREFIX [format [msgcat::mc "Configuring %s"] $subport]"
 
@@ -74,6 +74,28 @@ proc configure_start {args} {
             } result]} {
                 ui_warn "ccache_dir ${ccache_dir} could not be initialized; disabling ccache: $result"
                 set configure.ccache no
+            }
+        }
+    }
+
+    if {${configure.rustcache} && [namespace exists ::rust]} {
+        global rustcache_dir macportsuser
+        elevateToRoot "configure rust cache"
+        if {[catch {
+                file mkdir ${rustcache_dir}
+                file attributes ${rustcache_dir} -owner ${macportsuser} -permissions 0755
+            } result]} {
+            ui_warn "rustcache_dir ${rustcache_dir} could not be created; disabling Rust cache: $result"
+            set configure.rustcache no
+        }
+        dropPrivileges
+
+        if {${configure.rustcache}} {
+            if {[catch {
+                    exec sccache --start-server >/dev/null
+                } result]} {
+                ui_warn "rustcache_dir ${rustcache_dir} could not be initialized; disabling Rust cache: $result"
+                set configure.rustcache no
             }
         }
     }

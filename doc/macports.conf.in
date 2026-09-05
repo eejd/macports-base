@@ -107,6 +107,18 @@ variants_conf       	@MPCONFIGDIR_EXPANDED@/variants.conf
 # "K" for gigabytes, megabytes, or kilobytes.
 #ccache_size         	2G
 
+# Use sccache to cache Rust compiler output. The "sccache" executable must
+# exist in one of the directories in binpath.
+#configurerustcache  	no
+
+# Directory for sccache's cached compiler output. To prevent sandbox
+# violation errors, the path must contain no symlinks.
+#rustcache_dir       	@localstatedir_expanded@/macports/build/.rustcache
+
+# Maximum size of files stored in sccache's cache. Append "G", "M", or
+# "K" for gigabytes, megabytes, or kilobytes.
+#rustcache_size      	20G
+
 # Use distcc, a distributed compiler for C, C++, Objective-C, and
 # Objective-C++. (See http://distcc.org.) The "distcc" executable must
 # exist in one of the directories in binpath.

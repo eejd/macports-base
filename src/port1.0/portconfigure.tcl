@@ -322,11 +322,12 @@ default configure.universal_cppflags    {}
 default configure.universal_ldflags     {[portconfigure::configure_get_universal_archflags]}
 
 # Select a distinct compiler (C, C preprocessor, C++)
-options configure.ccache configure.distcc configure.pipe configure.cc \
+options configure.ccache configure.rustcache configure.distcc configure.pipe configure.cc \
         configure.cpp configure.objc configure.f77 \
         configure.f90 configure.fc configure.javac configure.compiler \
         compiler.blacklist compiler.whitelist compiler.fallback
 default configure.ccache        {${configureccache}}
+default configure.rustcache     {${configurerustcache}}
 default configure.distcc        {${configuredistcc}}
 default configure.pipe          {${configurepipe}}
 foreach _portconfigure_tool {cc objc cpp f77 f90 fc javac} {
