@@ -21,13 +21,19 @@ test portindex-deferred-loading-1.0 {
     }
     close $fd
 
-    global auto_path
-    set saved_auto_path $auto_path
-    set auto_path [linsert $auto_path 0 $poison_dir]
+    set had_tcllibpath [info exists env(TCLLIBPATH)]
+    if {$had_tcllibpath} {
+        set saved_tcllibpath $env(TCLLIBPATH)
+    }
+    set env(TCLLIBPATH) [list $poison_dir]
     try {
         port_index
     } finally {
-        set auto_path $saved_auto_path
+        if {$had_tcllibpath} {
+            set env(TCLLIBPATH) $saved_tcllibpath
+        } else {
+            unset env(TCLLIBPATH)
+        }
     }
 
     expr {[file exists ../PortIndex] && [file exists ../PortIndex.quick]}
