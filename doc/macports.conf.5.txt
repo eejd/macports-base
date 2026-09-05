@@ -109,8 +109,8 @@ buildnicevalue::
 
 buildmakejobs::
     Number of simultaneous make jobs (commands) to use when building ports. 0 is
-    a special value meaning "the number of CPU cores or the number of GB of
-    physical memory plus one, whichever is less."
+    a special value meaning "the number of CPU cores or physical memory
+    divided by build.mem_per_job (1024 MiB by default), whichever is less."
     *Default:*;; 0
 
 portautoclean::

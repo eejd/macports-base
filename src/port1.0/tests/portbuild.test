@@ -18,6 +18,11 @@ package require portutil 1.0
 package require portbuild 1.0
 
 set build_getjobs_fixture_setup {
+    global use_parallel_build build.mem_per_job
+
+    set use_parallel_build yes
+    set build.mem_per_job 1024
+
     # Move away sysctl and replace it with our own implementation
     rename sysctl sysctl_backup
     proc sysctl {sysctlname} {
@@ -42,8 +47,6 @@ set build_getjobs_fixture_setup {
     }
 }
 set build_getjobs_fixture_cleanup {
-    global buildmakejobs use_parallel_build build.mem_per_job
-
     # Restore modified state
     rename sysctl ""
     rename sysctl_backup sysctl
