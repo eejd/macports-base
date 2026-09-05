@@ -92,7 +92,20 @@ proc configure_start {args} {
 
         if {${configure.rustcache}} {
             if {[catch {
-                    exec sccache --start-server >/dev/null
+                    set had_tmpdir [info exists ::env(TMPDIR)]
+                    if {${had_tmpdir}} {
+                        set saved_tmpdir $::env(TMPDIR)
+                    }
+                    set ::env(TMPDIR) ${rustcache_dir}
+                    try {
+                        exec sccache --start-server >/dev/null
+                    } finally {
+                        if {${had_tmpdir}} {
+                            set ::env(TMPDIR) ${saved_tmpdir}
+                        } else {
+                            unset ::env(TMPDIR)
+                        }
+                    }
                 } result]} {
                 ui_warn "rustcache_dir ${rustcache_dir} could not be initialized; disabling Rust cache: $result"
                 set configure.rustcache no

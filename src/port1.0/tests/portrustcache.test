@@ -34,8 +34,11 @@ test rustcache_start_server {
     set configure.rustcache yes
     set rustcache_dir [makeDirectory rustcache_start_server]
     set macportsuser [file attributes $rustcache_dir -owner]
+    set original_tmpdir [makeDirectory original_tmpdir]
+    set env(TMPDIR) $original_tmpdir
     set portconfigure::no_default_compiler_allowed no
     set sccache_command {}
+    set sccache_tmpdir {}
     foreach command {elevateToRoot dropPrivileges} {
         if {[llength [info commands $command]]} {
             rename $command ${command}_saved
@@ -45,11 +48,17 @@ test rustcache_start_server {
     rename exec exec_real
     proc exec {args} {
         set ::sccache_command $args
+        set ::sccache_tmpdir $::env(TMPDIR)
         return {}
     }
 } -body {
     portconfigure::configure_start
-    list ${configure.rustcache} [file isdirectory $rustcache_dir] $sccache_command
+    list \
+        ${configure.rustcache} \
+        [file isdirectory $rustcache_dir] \
+        $sccache_command \
+        [expr {$sccache_tmpdir eq $rustcache_dir}] \
+        [expr {$env(TMPDIR) eq $original_tmpdir}]
 } -cleanup {
     rename exec {}
     rename exec_real exec
@@ -60,7 +69,7 @@ test rustcache_start_server {
         }
     }
     namespace delete rust
-} -result {yes 1 {sccache --start-server >/dev/null}}
+} -result {yes 1 {sccache --start-server >/dev/null} 1 1}
 
 
 test rustcache_sandbox_profile {
