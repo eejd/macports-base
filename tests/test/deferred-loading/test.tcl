@@ -36,7 +36,8 @@ test portindex-deferred-loading-1.0 {
         }
     }
 
-    expr {[file exists ../PortIndex] && [file exists ../PortIndex.quick]}
+    expr {[file exists [file join $test_root ports PortIndex]]
+          && [file exists [file join $test_root ports PortIndex.quick]]}
 } -result 1
 
 cleanupTests
