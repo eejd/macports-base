@@ -117,7 +117,8 @@ variants_conf       	@MPCONFIGDIR_EXPANDED@/variants.conf
 
 # Maximum size of files stored in sccache's cache. Append "G", "M", or
 # "K" for gigabytes, megabytes, or kilobytes. This setting is read when the
-# sccache server starts; stop the server before changing it.
+# sccache server starts. Before changing it, stop the existing server with:
+# env SCCACHE_DIR=<rustcache_dir> SCCACHE_SERVER_UDS=<rustcache_dir>/sccache.sock sccache --stop-server
 #rustcache_size      	20G
 
 # Use distcc, a distributed compiler for C, C++, Objective-C, and

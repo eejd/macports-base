@@ -1,0 +1,96 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
+
+package require tcltest 2
+namespace import tcltest::*
+::tcltest::configure {*}$::argv
+
+set pwd [file dirname [file normalize $argv0]]
+
+source ../port_test_autoconf.tcl
+source ../port_autoconf.tcl
+source $macports::autoconf::top_srcdir/src/macports1.0/tests/test_setup.tcl
+
+macports_worker_init
+namespace eval port {
+    proc register_callback {args} {}
+    proc run_callbacks {args} {}
+}
+
+package require portutil 1.0
+package require portconfigure 1.0
+package require portconfigure_run 1.0
+package require portsandbox 1.0
+
+
+test rustcache_start_server {
+    Configuring a Rust port initializes its cache directory and starts the matching sccache server.
+} -setup {
+    namespace eval rust {}
+    set UI_PREFIX {}
+    set subport rustcache-test
+    set configure.compiler clang
+    set compiler.fallback {clang}
+    set configure.ccache no
+    set configure.rustcache yes
+    set rustcache_dir [makeDirectory rustcache_start_server]
+    set macportsuser [file attributes $rustcache_dir -owner]
+    set portconfigure::no_default_compiler_allowed no
+    set sccache_command {}
+    foreach command {elevateToRoot dropPrivileges} {
+        if {[llength [info commands $command]]} {
+            rename $command ${command}_saved
+        }
+        proc $command {args} {}
+    }
+    rename exec exec_real
+    proc exec {args} {
+        set ::sccache_command $args
+        return {}
+    }
+} -body {
+    portconfigure::configure_start
+    list ${configure.rustcache} [file isdirectory $rustcache_dir] $sccache_command
+} -cleanup {
+    rename exec {}
+    rename exec_real exec
+    foreach command {elevateToRoot dropPrivileges} {
+        rename $command {}
+        if {[llength [info commands ${command}_saved]]} {
+            rename ${command}_saved $command
+        }
+    }
+    namespace delete rust
+} -result {yes 1 {sccache --start-server >/dev/null}}
+
+
+test rustcache_sandbox_profile {
+    Rust cache builds can write the cache and connect to the configured Unix socket while network sandboxing is active.
+} -setup {
+    namespace eval rust {}
+    set sandbox_root [makeDirectory rustcache_sandbox_profile]
+    set os.major 20
+    set workpath [makeDirectory work $sandbox_root]
+    set worksrcpath [makeDirectory src $sandbox_root]
+    set distpath [makeDirectory dist $sandbox_root]
+    set package.destpath [makeDirectory pkg $sandbox_root]
+    set configure.ccache no
+    set ccache_dir [makeDirectory ccache $sandbox_root]
+    set configure.rustcache yes
+    set rustcache_dir [makeDirectory rustcache $sandbox_root]
+    set portdbpath [makeDirectory portdb $sandbox_root]
+    set sandbox_network yes
+    set configure.distcc no
+    set porttrace no
+    set prefix_frozen [makeDirectory prefix $sandbox_root]
+    set build.type default
+    set portsandbox_profile {}
+} -body {
+    portsandbox::set_profile build
+    list \
+        [expr {[string first "subpath \"${rustcache_dir}\"" $portsandbox_profile] >= 0}] \
+        [expr {[string first "literal \"[file join $rustcache_dir sccache.sock]\"" $portsandbox_profile] >= 0}]
+} -cleanup {
+    namespace delete rust
+} -result {1 1}
+
+cleanupTests

@@ -104,8 +104,10 @@ rustcache_dir::
 
 rustcache_size::
     Maximum size sccache may use. Use 'G', 'M', or 'K' suffix for giga-, mega- or
-    kilobytes. This setting is read when the sccache server starts; stop the server
-    before changing it.
+    kilobytes. This setting is read when the sccache server starts. Before changing
+    it, substitute the configured cache path and stop the existing server with
+    `env SCCACHE_DIR=<rustcache_dir> SCCACHE_SERVER_UDS=<rustcache_dir>/sccache.sock
+    sccache --stop-server`.
     *Default:*;; 20G
 
 configuredistcc::

@@ -12,6 +12,45 @@ source $macports::autoconf::top_srcdir/src/macports1.0/tests/test_setup.tcl
 package require Thread
 
 
+test rustcache_defaults {
+    Rust compiler cache options have safe defaults and bootstrap metadata.
+} -body {
+    list \
+        $macports::configurerustcache \
+        $macports::rustcache_dir \
+        $macports::rustcache_size \
+        [dict exists $macports::bootstrap_options configurerustcache] \
+        [dict get $macports::bootstrap_options rustcache_dir is_path] \
+        [dict exists $macports::bootstrap_options rustcache_size] \
+        $::env(SCCACHE_DIR) \
+        $::env(SCCACHE_CACHE_SIZE) \
+        $::env(SCCACHE_SERVER_UDS)
+} -result [list \
+    no \
+    [file join $pwd tmpdir var macports build .rustcache] \
+    20G \
+    1 \
+    1 \
+    1 \
+    [file join $pwd tmpdir var macports build .rustcache] \
+    20G \
+    [file join $pwd tmpdir var macports build .rustcache sccache.sock]]
+
+
+test rustcache_cli_override {
+    A per-invocation configurerustcache option overrides the global default in the Portfile interpreter.
+} -setup {
+    set mport [mportopen file://${pwd} [dict create configurerustcache yes] {} yes]
+    set workername [ditem_key $mport workername]
+} -body {
+    list \
+        [$workername eval [list set configurerustcache]] \
+        [$workername eval [list set configure.rustcache]]
+} -cleanup {
+    mportclose $mport
+} -result {yes yes}
+
+
 test mportclose {
     Mport close unit test.
 } -setup {
