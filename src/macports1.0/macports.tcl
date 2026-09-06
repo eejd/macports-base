@@ -2187,6 +2187,7 @@ proc macports::worker_init {workername portpath porturl portbuildpath options va
     $workername alias binaryInPath macports::binaryInPath
     $workername alias find_tar_with_hfscompression macports::find_tar_with_hfscompression
     $workername alias sysctl sysctl
+    $workername alias macports::get_parallel_jobs macports::get_parallel_jobs
     $workername alias realpath realpath
     $workername alias _mportsearchpath _mportsearchpath
     $workername alias _portnameactive _portnameactive

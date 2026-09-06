@@ -12,6 +12,24 @@ source $macports::autoconf::top_srcdir/src/macports1.0/tests/test_setup.tcl
 package require Thread
 
 
+test worker_parallel_jobs_default {
+    The build.jobs default can call the shared job calculator from a Portfile worker.
+} -setup {
+    set mport [mportopen file://${pwd}]
+    set workername [ditem_key $mport workername]
+} -body {
+    set jobs [$workername eval {
+        set buildmakejobs 0
+        set use_parallel_build yes
+        set build.mem_per_job 1024
+        portbuild::build_getjobs
+    }]
+    expr {[string is integer -strict $jobs] && $jobs >= 1}
+} -cleanup {
+    mportclose $mport
+} -result 1
+
+
 test mportclose {
     Mport close unit test.
 } -setup {
