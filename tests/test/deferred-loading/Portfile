@@ -1,0 +1,11 @@
+PortSystem          1.0
+
+name                deferred-loading-test
+version             1.0
+categories          test
+maintainers         nomaintainer
+description         fixture for deferred-loading integration test
+long_description    ${description}
+platforms           any
+supported_archs     noarch
+license             BSD

@@ -131,26 +131,28 @@ proc set_dir {} {
 }
 
 # Run portindex
-proc port_index {} {
+proc port_index {args} {
     global cpwd portsrc test_tclsh top_srcdir test_root
 
     # Move up 2 level to run portindex.
     set path [pwd]
-    cd ../..
-    # Avoid warning about ports tree being old
-    foreach portfile [glob -nocomplain */*/Portfile] {
-        file mtime $portfile [clock seconds]
-    }
-
-    without_darwintrace_env {
-        with_portsrc $portsrc {
-            exec -ignorestderr ${test_tclsh} ${top_srcdir}/src/port/portindex.tcl 2>@1
+    try {
+        cd ../..
+        # Avoid warning about ports tree being old
+        foreach portfile [glob -nocomplain */*/Portfile] {
+            file mtime $portfile [clock seconds]
         }
+
+        without_darwintrace_env {
+            with_portsrc $portsrc {
+                exec -ignorestderr ${test_tclsh} ${top_srcdir}/src/port/portindex.tcl {*}$args 2>@1
+            }
+        }
+
+        file copy ${cpwd}/PortIndex ${cpwd}/PortIndex.quick ${test_root}/ports/
+    } finally {
+        cd $path
     }
-
-    file copy ${cpwd}/PortIndex ${cpwd}/PortIndex.quick ${test_root}/ports/
-
-    cd $path
 }
 
 # Executes port clean.

@@ -32,7 +32,7 @@ package provide portpatch_run 1.0
 
 namespace eval portpatch {
 
-proc patch_main {args} {
+proc _patch_main {args} {
     global UI_PREFIX
 
     # First make sure that patchfiles exists and isn't stubbed out.

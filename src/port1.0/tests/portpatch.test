@@ -14,6 +14,19 @@ source ../port_autoconf.tcl
 macports_worker_init
 
 
+test patch_main_deferred {
+    The patch target entry point loads and forwards to its runtime implementation.
+} -body {
+    set before [package provide portpatch_run]
+    set result [portpatch::patch_main]
+    list \
+        $before \
+        $result \
+        [package provide portpatch_run] \
+        [llength [info commands portpatch::_patch_main]]
+} -result {{} 0 1.0 1}
+
+
 test build_getpatchtype {
     Get patch type unit test.
 } -body {

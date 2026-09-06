@@ -1,0 +1,1 @@
+Verify that portindex only loads parse-time target packages.

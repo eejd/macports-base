@@ -6,6 +6,7 @@ set test_suite {
     dependencies-c
     dependencies-d
     dependencies-e
+    deferred-loading
     envvariables
     setuid
     site-tags
