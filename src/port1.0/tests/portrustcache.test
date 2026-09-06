@@ -185,15 +185,29 @@ test rustcache_store_is_confined_to_a_subdirectory {
         proc $command {args} {}
     }
     rename exec exec_real
-    proc exec {args} {return {}}
+    # A failing start is what drives configure_start into disable_rustcache_environment,
+    # which is the code path that reveals the derived SCCACHE_DIR.
+    proc exec {args} {return -code error "sccache unavailable"}
+    # Seed the phase environments with both the subdirectory form and the flat form the
+    # store used to have. disable_rustcache_environment removes only the entries it would
+    # itself have added, with `lsearch -exact`, so which of the two it strips reveals the
+    # SCCACHE_DIR the code actually derives -- without this test having to name it.
+    foreach phase {configure build destroot} {
+        set ${phase}.env [list \
+            SCCACHE_DIR=[file join ${rustcache_dir} sccache] \
+            SCCACHE_DIR=${rustcache_dir}]
+    }
 } -body {
     portconfigure::configure_start
-    set store [file join $rustcache_dir sccache]
+    # The failing exec stub disables the cache, which runs disable_rustcache_environment.
+    set survivors ${configure.env}
+    set store [string range [lindex $survivors 0] [string length SCCACHE_DIR=] end]
     list \
-        [expr {$store ne $rustcache_dir}] \
-        [file isdirectory $store] \
-        [expr {[string first "${store}/" "${vendor_dir}/"] == 0}] \
-        [expr {[string first "${store}/" "${compwrap_dir}/"] == 0}]
+        [llength $survivors] \
+        [expr {$store eq $rustcache_dir}] \
+        [file isdirectory [file join $rustcache_dir sccache]] \
+        [expr {[string first "[file join $rustcache_dir sccache]/" "${vendor_dir}/"] == 0}] \
+        [expr {[string first "[file join $rustcache_dir sccache]/" "${compwrap_dir}/"] == 0}]
 } -cleanup {
     rename exec {}
     rename exec_real exec
@@ -204,7 +218,7 @@ test rustcache_store_is_confined_to_a_subdirectory {
         }
     }
     namespace delete rust
-} -result {1 1 0 0}
+} -result {1 1 1 0 0}
 
 
 cleanupTests
