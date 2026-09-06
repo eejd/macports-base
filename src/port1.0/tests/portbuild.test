@@ -23,6 +23,11 @@ set build_getjobs_fixture_setup {
     set use_parallel_build yes
     set build.mem_per_job 1024
 
+    set _macports_buildmakejobs ${::macports::buildmakejobs}
+    set _macports_os_platform ${::macports::os_platform}
+    set ::macports::buildmakejobs 0
+    set ::macports::os_platform darwin
+
     # Move away sysctl and replace it with our own implementation
     rename sysctl sysctl_backup
     proc sysctl {sysctlname} {
@@ -50,6 +55,8 @@ set build_getjobs_fixture_cleanup {
     # Restore modified state
     rename sysctl ""
     rename sysctl_backup sysctl
+    set ::macports::buildmakejobs ${_macports_buildmakejobs}
+    set ::macports::os_platform ${_macports_os_platform}
 }
 
 test build_getjobs_auto_cpubound {
