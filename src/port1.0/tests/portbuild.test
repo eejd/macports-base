@@ -96,6 +96,20 @@ test build_getjobs_auto_memminimum {
     return [portbuild::build_getjobs]
 } -result 1
 
+test get_parallel_jobs_auto_memminimum {
+    Verify that macports::get_parallel_jobs itself selects at least one executor when available memory is below the per-job limit
+} -setup $build_getjobs_fixture_setup -cleanup $build_getjobs_fixture_cleanup -body {
+    global buildmakejobs build.mem_per_job
+
+    set buildmakejobs 0
+    set _activecpus 8
+    set _activecpus_fail no
+    set _memsize 0.5
+    set _memsize_fail no
+
+    return [macports::get_parallel_jobs yes ${build.mem_per_job}]
+} -result 1
+
 test build_getjobs_port_memlimit {
     Verify that build.mem_per_job caps automatic parallel jobs using floor division.
 } -setup $build_getjobs_fixture_setup -cleanup $build_getjobs_fixture_cleanup -body {
