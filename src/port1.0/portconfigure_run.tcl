@@ -8,8 +8,28 @@ package require portprogress 1.0
 
 namespace eval portconfigure {
 
+proc disable_rustcache_environment {} {
+    global prefix rustcache_dir rustcache_size
+
+    set cache_env [list \
+        RUSTC_WRAPPER=${prefix}/bin/sccache \
+        SCCACHE_CACHE_SIZE=${rustcache_size} \
+        SCCACHE_DIR=[file join ${rustcache_dir} sccache] \
+        SCCACHE_SERVER_UDS=[file join ${rustcache_dir} sccache.sock] \
+        CARGO_INCREMENTAL=0]
+    foreach phase {configure build destroot} {
+        upvar #0 ${phase}.env phase_env
+        foreach entry ${cache_env} {
+            set index [lsearch -exact ${phase_env} ${entry}]
+            if {${index} >= 0} {
+                lpop phase_env ${index}
+            }
+        }
+    }
+}
+
 proc configure_start {args} {
-    global UI_PREFIX subport configure.compiler compiler.fallback configure.ccache
+    global UI_PREFIX subport configure.compiler compiler.fallback configure.ccache configure.rustcache
 
     ui_notice "$UI_PREFIX [format [msgcat::mc "Configuring %s"] $subport]"
 
@@ -74,6 +94,48 @@ proc configure_start {args} {
             } result]} {
                 ui_warn "ccache_dir ${ccache_dir} could not be initialized; disabling ccache: $result"
                 set configure.ccache no
+            }
+        }
+    }
+
+    if {${configure.rustcache} && [namespace exists ::rust]} {
+        global rustcache_dir macportsuser
+        elevateToRoot "configure rust cache"
+        # The sccache object store is deliberately confined to a subdirectory:
+        # sccache's LRU walks its whole SCCACHE_DIR and evicts anything it finds
+        # there under size pressure, so rustcache_dir itself must not be it --
+        # the shared vendor tree and linker wrappers live alongside it.
+        if {[catch {
+                file mkdir [file join ${rustcache_dir} sccache]
+                file attributes ${rustcache_dir} -owner ${macportsuser} -permissions 0755
+                file attributes [file join ${rustcache_dir} sccache] -owner ${macportsuser} -permissions 0755
+            } result]} {
+            ui_warn "rustcache_dir ${rustcache_dir} could not be created; disabling Rust cache: $result"
+            set configure.rustcache no
+            disable_rustcache_environment
+        }
+        dropPrivileges
+
+        if {${configure.rustcache}} {
+            if {[catch {
+                    set had_tmpdir [info exists ::env(TMPDIR)]
+                    if {${had_tmpdir}} {
+                        set saved_tmpdir $::env(TMPDIR)
+                    }
+                    set ::env(TMPDIR) ${rustcache_dir}
+                    try {
+                        exec sccache --start-server >/dev/null
+                    } finally {
+                        if {${had_tmpdir}} {
+                            set ::env(TMPDIR) ${saved_tmpdir}
+                        } else {
+                            unset ::env(TMPDIR)
+                        }
+                    }
+                } result]} {
+                ui_warn "rustcache_dir ${rustcache_dir} could not be initialized; disabling Rust cache: $result"
+                set configure.rustcache no
+                disable_rustcache_environment
             }
         }
     }

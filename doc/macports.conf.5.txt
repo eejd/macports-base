@@ -94,6 +94,24 @@ ccache_size::
     kilobytes.
     *Default:*;; 2G
 
+configurerustcache::
+    Use sccache (Rust compiler cache). Requires that sccache has been installed.
+    *Default:*;; no
+
+rustcache_dir::
+    Location of the Rust build cache. Holds sccache's object store in
+    `sccache`, the shared vendored crate tree in `vendor`, and the shared
+    linker wrappers in `compwrap`. All of them are cleared by `port reclaim`.
+    *Default:*;; $\{portdbpath\}/build/.rustcache
+
+rustcache_size::
+    Maximum size sccache may use. Use 'G', 'M', or 'K' suffix for giga-, mega- or
+    kilobytes. This setting is read when the sccache server starts. Before changing
+    it, substitute the configured cache path and stop the existing server with
+    `env SCCACHE_DIR=<rustcache_dir>/sccache SCCACHE_SERVER_UDS=<rustcache_dir>/sccache.sock
+    sccache --stop-server`.
+    *Default:*;; 20G
+
 configuredistcc::
     Use distcc (distributed compiler). Requires that distcc has been installed.
     *Default:*;; no

@@ -44,7 +44,7 @@ default portsandbox_profile {}
 # sandbox-exec -p '(version 1) (allow default) (deny file-write*) (allow file-write* <filter>)' some-command
 proc portsandbox::set_profile {target} {
     global os.major portsandbox_profile workpath worksrcpath distpath \
-        package.destpath configure.ccache ccache_dir portdbpath \
+        package.destpath configure.ccache ccache_dir configure.rustcache rustcache_dir portdbpath \
         sandbox_network configure.distcc porttrace prefix_frozen \
         build.type
 
@@ -88,6 +88,9 @@ proc portsandbox::set_profile {target} {
     }
     if {${configure.ccache}} {
         lappend allow_dirs $ccache_dir
+    }
+    if {${configure.rustcache} && [namespace exists ::rust]} {
+        lappend allow_dirs $rustcache_dir
     }
     if {${build.type} eq "xcode"} {
         # whitelist directories used by Xcode tools
@@ -163,6 +166,9 @@ proc portsandbox::set_profile {target} {
                     # allow accessing the darwintrace fifo in trace mode
                     set template [string trimright ${::porttrace::fifo_mktemp_template} "X"]
                     append portsandbox_profile " (allow network-outbound (to unix-socket) (regex #\"^${template}\"))"
+                }
+                if {${configure.rustcache} && [namespace exists ::rust]} {
+                    append portsandbox_profile " (allow network-outbound (to unix-socket) (literal \"[file join $rustcache_dir sccache.sock]\"))"
                 }
             }
         }

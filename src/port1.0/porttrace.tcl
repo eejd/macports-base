@@ -269,6 +269,11 @@ namespace eval porttrace {
             }
         }
 
+        if {[option configure.rustcache] && [namespace exists ::rust]} {
+            global rustcache_dir
+            allow trace_sandbox $rustcache_dir
+        }
+
         # Grant access to the directory we use to mirror binaries under SIP
         if {[info exists ::env(DARWINTRACE_SIP_WORKAROUND_PATH)]} {
             allow trace_sandbox $::env(DARWINTRACE_SIP_WORKAROUND_PATH)
