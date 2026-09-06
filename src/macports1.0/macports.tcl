@@ -7551,20 +7551,32 @@ proc macports::unobscure_maintainers {list} {
 }
 
 # Get actual number of parallel jobs based on buildmakejobs, which may
-# be 0 for automatic selection.
-proc macports::get_parallel_jobs {{mem_restrict yes}} {
+# be 0 for automatic selection. When memory restriction is enabled,
+# mem_per_job is measured in MiB.
+proc macports::get_parallel_jobs {{mem_restrict yes} {mem_per_job 1024}} {
     variable buildmakejobs; variable os_platform
     if {[string is integer -strict $buildmakejobs] && $buildmakejobs > 0} {
         set jobs $buildmakejobs
-    } elseif {$os_platform eq "darwin" && $buildmakejobs == 0
-              && ![catch {sysctl hw.activecpu} cpus]} {
-        set jobs $cpus
-        if {$mem_restrict && ![catch {sysctl hw.memsize} memsize]
-                && $jobs > $memsize / (1024 * 1024 * 1024) + 1} {
-            set jobs [expr {$memsize / (1024 * 1024 * 1024) + 1}]
+    } elseif {$os_platform eq "darwin" && $buildmakejobs == 0} {
+        if {[catch {sysctl hw.activecpu} cpus]} {
+            set jobs 2
+            ui_warn "failed to determine the number of available CPUs (probably not supported on this platform)"
+            ui_warn "defaulting to $jobs jobs, consider setting buildmakejobs to a nonzero value in macports.conf"
+        } else {
+            set jobs $cpus
+            if {$mem_restrict && [string is integer -strict $mem_per_job]
+                    && $mem_per_job > 0 && ![catch {sysctl hw.memsize} memsize]} {
+                set mem_jobs [expr {$memsize / ($mem_per_job * 1024 * 1024)}]
+                if {$jobs > $mem_jobs} {
+                    set jobs $mem_jobs
+                }
+            }
         }
     } else {
         set jobs 2
+    }
+    if {$jobs < 1} {
+        set jobs 1
     }
     return $jobs
 }

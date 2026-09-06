@@ -18,6 +18,11 @@ package require portutil 1.0
 package require portbuild 1.0
 
 set build_getjobs_fixture_setup {
+    global use_parallel_build build.mem_per_job
+
+    set use_parallel_build yes
+    set build.mem_per_job 1024
+
     # Move away sysctl and replace it with our own implementation
     rename sysctl sysctl_backup
     proc sysctl {sysctlname} {
@@ -42,8 +47,6 @@ set build_getjobs_fixture_setup {
     }
 }
 set build_getjobs_fixture_cleanup {
-    global buildmakejobs
-
     # Restore modified state
     rename sysctl ""
     rename sysctl_backup sysctl
@@ -77,7 +80,62 @@ test build_getjobs_auto_memlimited {
     set _memsize_fail no
 
     return [portbuild::build_getjobs]
-} -result 5
+} -result 4
+
+test build_getjobs_auto_memminimum {
+    Verify that portbuild::build_getjobs selects at least one executor when available memory is below the per-job limit
+} -setup $build_getjobs_fixture_setup -cleanup $build_getjobs_fixture_cleanup -body {
+    global buildmakejobs
+
+    set buildmakejobs 0
+    set _activecpus 8
+    set _activecpus_fail no
+    set _memsize 0.5
+    set _memsize_fail no
+
+    return [portbuild::build_getjobs]
+} -result 1
+
+test get_parallel_jobs_auto_memminimum {
+    Verify that macports::get_parallel_jobs itself selects at least one executor when available memory is below the per-job limit
+} -setup $build_getjobs_fixture_setup -cleanup $build_getjobs_fixture_cleanup -body {
+    global buildmakejobs build.mem_per_job
+
+    set buildmakejobs 0
+    set _activecpus 8
+    set _activecpus_fail no
+    set _memsize 0.5
+    set _memsize_fail no
+
+    return [macports::get_parallel_jobs yes ${build.mem_per_job}]
+} -result 1
+
+test build_getjobs_port_memlimit {
+    Verify that build.mem_per_job caps automatic parallel jobs using floor division.
+} -setup $build_getjobs_fixture_setup -cleanup $build_getjobs_fixture_cleanup -body {
+    global buildmakejobs use_parallel_build build.mem_per_job
+
+    set buildmakejobs 0
+    set use_parallel_build yes
+    set build.mem_per_job 2048
+    set _activecpus 8
+    set _activecpus_fail no
+    set _memsize 7
+    set _memsize_fail no
+
+    return [portbuild::build_getjobs]
+} -result 3
+
+test build_getjobs_parallel_disabled {
+    Verify that a Portfile can always disable parallel builds.
+} -setup $build_getjobs_fixture_setup -cleanup $build_getjobs_fixture_cleanup -body {
+    global buildmakejobs use_parallel_build
+
+    set buildmakejobs 42
+    set use_parallel_build no
+
+    return [portbuild::build_getjobs]
+} -result 1
 
 test build_getjobs_configured {
     Verify that portbuild::build_getjobs correctly returns the number of configured parallel executors

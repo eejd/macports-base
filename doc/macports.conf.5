@@ -288,7 +288,7 @@ T}
 .PP
 buildmakejobs
 .RS 4
-Number of simultaneous make jobs (commands) to use when building ports\&. 0 is a special value meaning "the number of CPU cores or the number of GB of physical memory plus one, whichever is less\&."
+Number of simultaneous make jobs (commands) to use when building ports\&. 0 is a special value meaning "the number of CPU cores or physical memory divided by build\&.mem_per_job (1024 MiB by default), whichever is less\&."
 .TS
 tab(:);
 lt lt.
