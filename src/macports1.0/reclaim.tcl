@@ -77,6 +77,7 @@ namespace eval reclaim {
         remove_distfiles
         remove_builds
         remove_ccache
+        remove_rustcache
         remove_snapshots
 
         if {![macports::global_option_isset ports_dryrun]} {
@@ -175,6 +176,56 @@ namespace eval reclaim {
             ui_info [msgcat::mc "Deleting everything under %s" $ccache_dir]
             macports_try -pass_signal {
                 file delete -force -- {*}$ccachedirs
+            } on error {eMessage} {
+                ui_debug "$::errorInfo"
+                ui_error "$eMessage"
+            }
+        }
+    }
+
+    proc remove_rustcache {} {
+        global macports::prefix macports::rustcache_dir macports::ui_prefix macports::ui_options
+
+        if {![file exists ${rustcache_dir}]} {
+            ui_info [msgcat::mc "Skipping deletion of Rust cache directory: %s does not exist." $rustcache_dir]
+            return
+        }
+
+        ui_msg "$ui_prefix Rust cache location: ${rustcache_dir}"
+
+        if {[macports::global_option_isset ports_dryrun]} {
+            ui_msg "Deleting... (dry run)"
+            ui_info [msgcat::mc "Skipping deletion of everything under %s (dry run)" $rustcache_dir]
+            return
+        }
+
+        set rustcachedirs [glob -nocomplain -directory $rustcache_dir *]
+        if {[llength $rustcachedirs] == 0} {
+            ui_info [msgcat::mc "No Rust cache directories to delete"]
+            return
+        }
+
+        set retval 0
+        if {[info exists ui_options(questions_yesno)]} {
+            set retval [$ui_options(questions_yesno) "" "" "" "y" 0 "Would you like to delete everything under the Rust cache directory?"]
+        }
+
+        if {${retval} == 0} {
+            ui_info [msgcat::mc "Deleting everything under %s" $rustcache_dir]
+            set rustcache_socket [file join ${rustcache_dir} sccache.sock]
+            if {[file exists ${rustcache_socket}]} {
+                if {[catch {
+                        exec env \
+                            SCCACHE_DIR=[file join ${rustcache_dir} sccache] \
+                            SCCACHE_SERVER_UDS=${rustcache_socket} \
+                            [file join ${prefix} bin sccache] --stop-server \
+                            >/dev/null 2>@1
+                    } result]} {
+                    ui_debug "Could not stop the Rust cache server before reclaim: $result"
+                }
+            }
+            macports_try -pass_signal {
+                file delete -force -- {*}$rustcachedirs
             } on error {eMessage} {
                 ui_debug "$::errorInfo"
                 ui_error "$eMessage"

@@ -1,0 +1,224 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
+
+package require tcltest 2
+namespace import tcltest::*
+::tcltest::configure {*}$::argv
+
+set pwd [file dirname [file normalize $argv0]]
+
+source ../port_test_autoconf.tcl
+source ../port_autoconf.tcl
+source $macports::autoconf::top_srcdir/src/macports1.0/tests/test_setup.tcl
+
+macports_worker_init
+namespace eval port {
+    proc register_callback {args} {}
+    proc run_callbacks {args} {}
+}
+
+package require portutil 1.0
+package require portconfigure 1.0
+package require portconfigure_run 1.0
+package require portsandbox 1.0
+
+
+test rustcache_start_server {
+    Configuring a Rust port initializes its cache directory and starts the matching sccache server.
+} -setup {
+    namespace eval rust {}
+    set UI_PREFIX {}
+    set subport rustcache-test
+    set configure.compiler clang
+    set compiler.fallback {clang}
+    set configure.ccache no
+    set configure.rustcache yes
+    set rustcache_dir [makeDirectory rustcache_start_server]
+    set macportsuser [file attributes $rustcache_dir -owner]
+    set original_tmpdir [makeDirectory original_tmpdir]
+    set env(TMPDIR) $original_tmpdir
+    set portconfigure::no_default_compiler_allowed no
+    set sccache_command {}
+    set sccache_tmpdir {}
+    foreach command {elevateToRoot dropPrivileges} {
+        if {[llength [info commands $command]]} {
+            rename $command ${command}_saved
+        }
+        proc $command {args} {}
+    }
+    rename exec exec_real
+    proc exec {args} {
+        set ::sccache_command $args
+        set ::sccache_tmpdir $::env(TMPDIR)
+        return {}
+    }
+} -body {
+    portconfigure::configure_start
+    list \
+        ${configure.rustcache} \
+        [file isdirectory $rustcache_dir] \
+        [file isdirectory [file join $rustcache_dir sccache]] \
+        $sccache_command \
+        [expr {$sccache_tmpdir eq $rustcache_dir}] \
+        [expr {$env(TMPDIR) eq $original_tmpdir}]
+} -cleanup {
+    rename exec {}
+    rename exec_real exec
+    foreach command {elevateToRoot dropPrivileges} {
+        rename $command {}
+        if {[llength [info commands ${command}_saved]]} {
+            rename ${command}_saved $command
+        }
+    }
+    namespace delete rust
+} -result {yes 1 1 {sccache --start-server >/dev/null} 1 1}
+
+
+test rustcache_start_failure_disables_wrapper {
+    A failed sccache start removes the cache environment so the Rust build can continue uncached.
+} -setup {
+    namespace eval rust {}
+    set UI_PREFIX {}
+    set subport rustcache-test
+    set prefix /opt/local
+    set configure.compiler clang
+    set compiler.fallback {clang}
+    set configure.ccache no
+    set configure.rustcache yes
+    set rustcache_dir [makeDirectory rustcache_start_failure]
+    set rustcache_size 20G
+    set macportsuser [file attributes $rustcache_dir -owner]
+    set portconfigure::no_default_compiler_allowed no
+    set cache_env [list \
+        RUSTC_WRAPPER=${prefix}/bin/sccache \
+        SCCACHE_CACHE_SIZE=${rustcache_size} \
+        SCCACHE_DIR=[file join ${rustcache_dir} sccache] \
+        SCCACHE_SERVER_UDS=[file join ${rustcache_dir} sccache.sock] \
+        CARGO_INCREMENTAL=0]
+    foreach phase {configure build destroot} {
+        set ${phase}.env [concat KEEP_ME=yes ${cache_env}]
+    }
+    foreach command {elevateToRoot dropPrivileges} {
+        if {[llength [info commands $command]]} {
+            rename $command ${command}_saved
+        }
+        proc $command {args} {}
+    }
+    rename exec exec_real
+    proc exec {args} {
+        return -code error "sccache unavailable"
+    }
+} -body {
+    portconfigure::configure_start
+    list \
+        ${configure.rustcache} \
+        ${configure.env} \
+        ${build.env} \
+        ${destroot.env}
+} -cleanup {
+    rename exec {}
+    rename exec_real exec
+    foreach command {elevateToRoot dropPrivileges} {
+        rename $command {}
+        if {[llength [info commands ${command}_saved]]} {
+            rename ${command}_saved $command
+        }
+    }
+    namespace delete rust
+} -result {no KEEP_ME=yes KEEP_ME=yes KEEP_ME=yes}
+
+
+test rustcache_sandbox_profile {
+    Rust cache builds can write the cache and connect to the configured Unix socket while network sandboxing is active.
+} -setup {
+    namespace eval rust {}
+    set sandbox_root [makeDirectory rustcache_sandbox_profile]
+    set os.major 20
+    set workpath [makeDirectory work $sandbox_root]
+    set worksrcpath [makeDirectory src $sandbox_root]
+    set distpath [makeDirectory dist $sandbox_root]
+    set package.destpath [makeDirectory pkg $sandbox_root]
+    set configure.ccache no
+    set ccache_dir [makeDirectory ccache $sandbox_root]
+    set configure.rustcache yes
+    set rustcache_dir [makeDirectory rustcache $sandbox_root]
+    set portdbpath [makeDirectory portdb $sandbox_root]
+    set sandbox_network yes
+    set configure.distcc no
+    set porttrace no
+    set prefix_frozen [makeDirectory prefix $sandbox_root]
+    set build.type default
+    set portsandbox_profile {}
+} -body {
+    portsandbox::set_profile build
+    list \
+        [expr {[string first "subpath \"${rustcache_dir}\"" $portsandbox_profile] >= 0}] \
+        [expr {[string first "literal \"[file join $rustcache_dir sccache.sock]\"" $portsandbox_profile] >= 0}]
+} -cleanup {
+    namespace delete rust
+} -result {1 1}
+
+test rustcache_store_is_confined_to_a_subdirectory {
+    The sccache object store must be a strict subdirectory of rustcache_dir, so that the
+    shared vendor tree and linker wrappers stored alongside it are outside sccache's LRU
+    scope. sccache walks and evicts everything below SCCACHE_DIR.
+} -setup {
+    namespace eval rust {}
+    set UI_PREFIX {}
+    set subport rustcache-test
+    set prefix /opt/local
+    set configure.compiler clang
+    set compiler.fallback {clang}
+    set configure.ccache no
+    set configure.rustcache yes
+    set rustcache_dir [makeDirectory rustcache_store_confinement]
+    set rustcache_size 20G
+    set macportsuser [file attributes $rustcache_dir -owner]
+    set env(TMPDIR) [makeDirectory rustcache_store_confinement_tmp]
+    set portconfigure::no_default_compiler_allowed no
+    # The sibling directories the PortGroups place next to the object store.
+    set vendor_dir [makeDirectory vendor $rustcache_dir]
+    set compwrap_dir [makeDirectory compwrap $rustcache_dir]
+    foreach command {elevateToRoot dropPrivileges} {
+        if {[llength [info commands $command]]} {
+            rename $command ${command}_saved
+        }
+        proc $command {args} {}
+    }
+    rename exec exec_real
+    # A failing start is what drives configure_start into disable_rustcache_environment,
+    # which is the code path that reveals the derived SCCACHE_DIR.
+    proc exec {args} {return -code error "sccache unavailable"}
+    # Seed the phase environments with both the subdirectory form and the flat form the
+    # store used to have. disable_rustcache_environment removes only the entries it would
+    # itself have added, with `lsearch -exact`, so which of the two it strips reveals the
+    # SCCACHE_DIR the code actually derives -- without this test having to name it.
+    foreach phase {configure build destroot} {
+        set ${phase}.env [list \
+            SCCACHE_DIR=[file join ${rustcache_dir} sccache] \
+            SCCACHE_DIR=${rustcache_dir}]
+    }
+} -body {
+    portconfigure::configure_start
+    # The failing exec stub disables the cache, which runs disable_rustcache_environment.
+    set survivors ${configure.env}
+    set store [string range [lindex $survivors 0] [string length SCCACHE_DIR=] end]
+    list \
+        [llength $survivors] \
+        [expr {$store eq $rustcache_dir}] \
+        [file isdirectory [file join $rustcache_dir sccache]] \
+        [expr {[string first "[file join $rustcache_dir sccache]/" "${vendor_dir}/"] == 0}] \
+        [expr {[string first "[file join $rustcache_dir sccache]/" "${compwrap_dir}/"] == 0}]
+} -cleanup {
+    rename exec {}
+    rename exec_real exec
+    foreach command {elevateToRoot dropPrivileges} {
+        rename $command {}
+        if {[llength [info commands ${command}_saved]]} {
+            rename ${command}_saved $command
+        }
+    }
+    namespace delete rust
+} -result {1 1 1 0 0}
+
+
+cleanupTests

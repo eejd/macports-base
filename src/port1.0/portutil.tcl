@@ -1114,6 +1114,10 @@ proc target_run {ditem} {
                     if {[option configure.ccache] && [file exists ${prefix_frozen}/bin/ccache]} {
                         lappend depends path:bin/ccache:ccache
                     }
+                    if {[option configure.rustcache] && [namespace exists ::rust]
+                        && [file exists ${prefix_frozen}/bin/sccache]} {
+                        lappend depends path:bin/sccache:sccache
+                    }
 
                     # Recursively collect all dependencies from registry for tracing
                     set depset [dict create]

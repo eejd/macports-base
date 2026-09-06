@@ -50,6 +50,65 @@ test remove_distfiles_keeps_turd_file {
     return [file exists $turdfile]
 } -result 1 -cleanup $cleanup_testdir
 
+test remove_rustcache {
+    Test that reclaim removes Rust cache contents but preserves the configured cache directory.
+} -setup {
+    set saved_rustcache_dir ${macports::rustcache_dir}
+    set macports::rustcache_dir [makeDirectory "reclaim_test_rustcache"]
+    set cachefile [makeFile "cached object" "object" ${macports::rustcache_dir}]
+} -body {
+    reclaim::remove_rustcache
+    list [file exists ${macports::rustcache_dir}] [file exists $cachefile]
+} -result {1 0} -cleanup {
+    set macports::rustcache_dir $saved_rustcache_dir
+}
+
+test remove_rustcache_stops_server {
+    Test that reclaim stops the server associated with the cache socket before deleting it.
+} -setup {
+    set saved_rustcache_dir ${macports::rustcache_dir}
+    set macports::rustcache_dir [makeDirectory "reclaim_test_rustcache_server"]
+    set socket [makeFile "socket placeholder" "sccache.sock" ${macports::rustcache_dir}]
+    set stop_command {}
+    set socket_existed_at_stop no
+    rename exec exec_real
+    proc exec {args} {
+        set ::stop_command $args
+        set ::socket_existed_at_stop [file exists $::socket]
+        return {}
+    }
+} -body {
+    reclaim::remove_rustcache
+    set expected_stop_command [list env \
+        SCCACHE_DIR=[file join ${macports::rustcache_dir} sccache] \
+        SCCACHE_SERVER_UDS=[file join ${macports::rustcache_dir} sccache.sock] \
+        [file join ${macports::prefix} bin sccache] --stop-server \
+        >/dev/null 2>@1]
+    list \
+        $socket_existed_at_stop \
+        [expr {$stop_command eq $expected_stop_command}] \
+        [file exists $socket]
+} -result {1 1 0} -cleanup {
+    rename exec {}
+    rename exec_real exec
+    set macports::rustcache_dir $saved_rustcache_dir
+}
+
+test remove_rustcache_dryrun {
+    Test that reclaim dry-run preserves Rust cache contents.
+} -setup {
+    set saved_rustcache_dir ${macports::rustcache_dir}
+    set macports::rustcache_dir [makeDirectory "reclaim_test_rustcache_dryrun"]
+    set cachefile [makeFile "cached object" "object" ${macports::rustcache_dir}]
+    set macports::global_options(ports_dryrun) yes
+} -body {
+    reclaim::remove_rustcache
+    list [file exists ${macports::rustcache_dir}] [file exists $cachefile]
+} -result {1 1} -cleanup {
+    unset -nocomplain macports::global_options(ports_dryrun)
+    set macports::rustcache_dir $saved_rustcache_dir
+}
+
 test update_last_run {
     Tests for last_reclaim file being updated.
 } -setup $setup_testdir -body {
