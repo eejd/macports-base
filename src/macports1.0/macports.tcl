@@ -1995,7 +1995,10 @@ match macports.conf.default."
     set env(CCACHE_DIR) $ccache_dir
 
     # Add the Rust compiler cache settings to the process environment.
-    set env(SCCACHE_DIR) $rustcache_dir
+    # SCCACHE_DIR is a subdirectory of rustcache_dir, not rustcache_dir itself:
+    # sccache's LRU evicts everything it finds under SCCACHE_DIR, and the shared
+    # vendor tree and linker wrappers are siblings of the object store.
+    set env(SCCACHE_DIR) [file join $rustcache_dir sccache]
     set env(SCCACHE_CACHE_SIZE) $rustcache_size
     set env(SCCACHE_SERVER_UDS) [file join $rustcache_dir sccache.sock]
 

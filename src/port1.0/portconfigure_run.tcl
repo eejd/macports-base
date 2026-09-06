@@ -14,7 +14,7 @@ proc disable_rustcache_environment {} {
     set cache_env [list \
         RUSTC_WRAPPER=${prefix}/bin/sccache \
         SCCACHE_CACHE_SIZE=${rustcache_size} \
-        SCCACHE_DIR=${rustcache_dir} \
+        SCCACHE_DIR=[file join ${rustcache_dir} sccache] \
         SCCACHE_SERVER_UDS=[file join ${rustcache_dir} sccache.sock] \
         CARGO_INCREMENTAL=0]
     foreach phase {configure build destroot} {
@@ -101,9 +101,14 @@ proc configure_start {args} {
     if {${configure.rustcache} && [namespace exists ::rust]} {
         global rustcache_dir macportsuser
         elevateToRoot "configure rust cache"
+        # The sccache object store is deliberately confined to a subdirectory:
+        # sccache's LRU walks its whole SCCACHE_DIR and evicts anything it finds
+        # there under size pressure, so rustcache_dir itself must not be it --
+        # the shared vendor tree and linker wrappers live alongside it.
         if {[catch {
-                file mkdir ${rustcache_dir}
+                file mkdir [file join ${rustcache_dir} sccache]
                 file attributes ${rustcache_dir} -owner ${macportsuser} -permissions 0755
+                file attributes [file join ${rustcache_dir} sccache] -owner ${macportsuser} -permissions 0755
             } result]} {
             ui_warn "rustcache_dir ${rustcache_dir} could not be created; disabling Rust cache: $result"
             set configure.rustcache no

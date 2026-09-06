@@ -258,7 +258,11 @@ T}
 .PP
 rustcache_dir
 .RS 4
-Location where sccache stores its files
+Location of the Rust build cache\&. Holds sccache\*(Aqs object store in
+\fBsccache\fR, the shared vendored crate tree in
+\fBvendor\fR, and the shared linker wrappers in
+\fBcompwrap\fR\&. All of them are cleared by
+\fBport reclaim\fR
 .TS
 tab(:);
 lt lt.
@@ -279,7 +283,7 @@ Maximum size sccache may use\&. Use
 \fIK\fR
 suffix for giga\-, mega\- or kilobytes\&.
 This setting is read when the sccache server starts\&. Before changing it, substitute the configured cache path and stop the existing server with
-\fBenv SCCACHE_DIR=<rustcache_dir> SCCACHE_SERVER_UDS=<rustcache_dir>/sccache\&.sock sccache \-\-stop\-server\fR\&.
+\fBenv SCCACHE_DIR=<rustcache_dir>/sccache SCCACHE_SERVER_UDS=<rustcache_dir>/sccache\&.sock sccache \-\-stop\-server\fR\&.
 .TS
 tab(:);
 lt lt.

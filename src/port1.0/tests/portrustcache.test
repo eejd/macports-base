@@ -56,6 +56,7 @@ test rustcache_start_server {
     list \
         ${configure.rustcache} \
         [file isdirectory $rustcache_dir] \
+        [file isdirectory [file join $rustcache_dir sccache]] \
         $sccache_command \
         [expr {$sccache_tmpdir eq $rustcache_dir}] \
         [expr {$env(TMPDIR) eq $original_tmpdir}]
@@ -69,7 +70,7 @@ test rustcache_start_server {
         }
     }
     namespace delete rust
-} -result {yes 1 {sccache --start-server >/dev/null} 1 1}
+} -result {yes 1 1 {sccache --start-server >/dev/null} 1 1}
 
 
 test rustcache_start_failure_disables_wrapper {
@@ -90,7 +91,7 @@ test rustcache_start_failure_disables_wrapper {
     set cache_env [list \
         RUSTC_WRAPPER=${prefix}/bin/sccache \
         SCCACHE_CACHE_SIZE=${rustcache_size} \
-        SCCACHE_DIR=${rustcache_dir} \
+        SCCACHE_DIR=[file join ${rustcache_dir} sccache] \
         SCCACHE_SERVER_UDS=[file join ${rustcache_dir} sccache.sock] \
         CARGO_INCREMENTAL=0]
     foreach phase {configure build destroot} {
@@ -155,5 +156,55 @@ test rustcache_sandbox_profile {
 } -cleanup {
     namespace delete rust
 } -result {1 1}
+
+test rustcache_store_is_confined_to_a_subdirectory {
+    The sccache object store must be a strict subdirectory of rustcache_dir, so that the
+    shared vendor tree and linker wrappers stored alongside it are outside sccache's LRU
+    scope. sccache walks and evicts everything below SCCACHE_DIR.
+} -setup {
+    namespace eval rust {}
+    set UI_PREFIX {}
+    set subport rustcache-test
+    set prefix /opt/local
+    set configure.compiler clang
+    set compiler.fallback {clang}
+    set configure.ccache no
+    set configure.rustcache yes
+    set rustcache_dir [makeDirectory rustcache_store_confinement]
+    set rustcache_size 20G
+    set macportsuser [file attributes $rustcache_dir -owner]
+    set env(TMPDIR) [makeDirectory rustcache_store_confinement_tmp]
+    set portconfigure::no_default_compiler_allowed no
+    # The sibling directories the PortGroups place next to the object store.
+    set vendor_dir [makeDirectory vendor $rustcache_dir]
+    set compwrap_dir [makeDirectory compwrap $rustcache_dir]
+    foreach command {elevateToRoot dropPrivileges} {
+        if {[llength [info commands $command]]} {
+            rename $command ${command}_saved
+        }
+        proc $command {args} {}
+    }
+    rename exec exec_real
+    proc exec {args} {return {}}
+} -body {
+    portconfigure::configure_start
+    set store [file join $rustcache_dir sccache]
+    list \
+        [expr {$store ne $rustcache_dir}] \
+        [file isdirectory $store] \
+        [expr {[string first "${store}/" "${vendor_dir}/"] == 0}] \
+        [expr {[string first "${store}/" "${compwrap_dir}/"] == 0}]
+} -cleanup {
+    rename exec {}
+    rename exec_real exec
+    foreach command {elevateToRoot dropPrivileges} {
+        rename $command {}
+        if {[llength [info commands ${command}_saved]]} {
+            rename ${command}_saved $command
+        }
+    }
+    namespace delete rust
+} -result {1 1 0 0}
+
 
 cleanupTests

@@ -216,7 +216,7 @@ namespace eval reclaim {
             if {[file exists ${rustcache_socket}]} {
                 if {[catch {
                         exec env \
-                            SCCACHE_DIR=${rustcache_dir} \
+                            SCCACHE_DIR=[file join ${rustcache_dir} sccache] \
                             SCCACHE_SERVER_UDS=${rustcache_socket} \
                             [file join ${prefix} bin sccache] --stop-server \
                             >/dev/null 2>@1

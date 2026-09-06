@@ -32,7 +32,7 @@ test rustcache_defaults {
     1 \
     1 \
     1 \
-    [file join $pwd tmpdir var macports build .rustcache] \
+    [file join $pwd tmpdir var macports build .rustcache sccache] \
     20G \
     [file join $pwd tmpdir var macports build .rustcache sccache.sock]]
 

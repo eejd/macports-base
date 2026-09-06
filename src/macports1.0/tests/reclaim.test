@@ -80,7 +80,7 @@ test remove_rustcache_stops_server {
 } -body {
     reclaim::remove_rustcache
     set expected_stop_command [list env \
-        SCCACHE_DIR=${macports::rustcache_dir} \
+        SCCACHE_DIR=[file join ${macports::rustcache_dir} sccache] \
         SCCACHE_SERVER_UDS=[file join ${macports::rustcache_dir} sccache.sock] \
         [file join ${macports::prefix} bin sccache] --stop-server \
         >/dev/null 2>@1]
