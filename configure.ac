@@ -285,7 +285,7 @@ AC_SUBST(HAVE_DECL_CLONE_NOOWNERCOPY, $ac_cv_have_decl_CLONE_NOOWNERCOPY)
 if test x$ac_cv_func_clonefile = xyes -a x$ac_cv_have_decl_CLONE_NOOWNERCOPY = xyes; then
 AC_CONFIG_FILES([vendor/install/Makefile])
 # If we build it, also use to install our own files.
-INSTALL="`(cd vendor; pwd)`/install/build/install"
+INSTALL="`pwd`/vendor/install/build/install"
 fi
 
 # Check for library functions, replacements are in pextlib1.0/compat/

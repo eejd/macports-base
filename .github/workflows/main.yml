@@ -42,6 +42,17 @@ jobs:
             # Extra dep for building HTML man pages.
             sudo apt install --no-install-recommends asciidoc-base
           fi
+      - name: Test VPATH install helper
+        if: startsWith(matrix.os,'macos')
+        run: |
+          set -eu
+          mkdir vpath-build
+          cd vpath-build
+          ../configure --without-startupitems
+          make -C vendor all-install
+          install_path=$(awk '$1 == "INSTALL" { print $3 }' Mk/macports.autoconf.mk)
+          test "$install_path" = "$PWD/vendor/install/build/install"
+          test -x "$install_path"
       - name: Configure MacPorts Base
         run: |
           set -eu
