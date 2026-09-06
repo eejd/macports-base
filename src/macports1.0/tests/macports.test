@@ -7,6 +7,14 @@ namespace import tcltest::*
 set pwd [file dirname [file normalize $argv0]]
 
 source ../macports_test_autoconf.tcl
+
+# Clear any ambient sccache settings before test_setup.tcl calls mportinit, so
+# rustcache_defaults below measures what mportinit does rather than what the
+# invoking shell happened to export. It has to happen here rather than in that
+# test's -setup, which runs long after mportinit has already had its chance. See
+# #85.
+unset -nocomplain ::env(SCCACHE_DIR) ::env(SCCACHE_CACHE_SIZE) ::env(SCCACHE_SERVER_UDS)
+
 source $macports::autoconf::top_srcdir/src/macports1.0/tests/test_setup.tcl
 
 package require Thread
@@ -40,8 +48,9 @@ test rustcache_defaults {
     # the sandbox only grants when it is yes. Nothing in base reads them from the
     # environment, so they are simply not exported now; the PortGroup sets its
     # own phase env and base's own sccache invocations pass them on the command
-    # line. Assumes the test runner's own environment does not set them, which is
-    # true wherever mportinit is what would have.
+    # line. The three are unset at the top of this file, before mportinit runs,
+    # so a developer with sccache in their own environment does not see a
+    # spurious failure here.
     list \
         $macports::configurerustcache \
         $macports::rustcache_dir \
