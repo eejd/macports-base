@@ -99,7 +99,7 @@ proc configure_start {args} {
     }
 
     if {${configure.rustcache} && [namespace exists ::rust]} {
-        global rustcache_dir macportsuser
+        global rustcache_dir rustcache_size macportsuser prefix
         elevateToRoot "configure rust cache"
         # The sccache object store is deliberately confined to a subdirectory:
         # sccache's LRU walks its whole SCCACHE_DIR and evicts anything it finds
@@ -124,7 +124,17 @@ proc configure_start {args} {
                     }
                     set ::env(TMPDIR) ${rustcache_dir}
                     try {
-                        exec sccache --start-server >/dev/null
+                        # Pass the cache settings explicitly rather than relying
+                        # on the process environment -- mportinit no longer
+                        # exports them (#85), and the server would otherwise come
+                        # up against sccache's own default cache directory
+                        # instead of rustcache_dir. Same form as reclaim.tcl's
+                        # --stop-server.
+                        exec env \
+                            SCCACHE_DIR=[file join ${rustcache_dir} sccache] \
+                            SCCACHE_CACHE_SIZE=${rustcache_size} \
+                            SCCACHE_SERVER_UDS=[file join ${rustcache_dir} sccache.sock] \
+                            [file join ${prefix} bin sccache] --start-server >/dev/null
                     } finally {
                         if {${had_tmpdir}} {
                             set ::env(TMPDIR) ${saved_tmpdir}

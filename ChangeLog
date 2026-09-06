@@ -10,6 +10,12 @@ Release 2.13.0 (unreleased)
       rustcache_dir, so that other shared Rust build state kept alongside
       it is outside sccache's LRU eviction scope. (#58)
 
+    - Stopped exporting SCCACHE_DIR, SCCACHE_CACHE_SIZE and
+      SCCACHE_SERVER_UDS to the process environment. They were set even
+      when configurerustcache was no, naming a directory the build sandbox
+      grants only when it is yes. Nothing read them from the environment.
+      (#85)
+
     - Added a --purge option for 'port clean' that quickly and
       unconditionally deletes all files of the chosen type(s).
       (jmr in 22e1abd)

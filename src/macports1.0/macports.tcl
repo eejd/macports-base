@@ -1994,13 +1994,15 @@ match macports.conf.default."
     # add ccache to environment
     set env(CCACHE_DIR) $ccache_dir
 
-    # Add the Rust compiler cache settings to the process environment.
-    # SCCACHE_DIR is a subdirectory of rustcache_dir, not rustcache_dir itself:
-    # sccache's LRU evicts everything it finds under SCCACHE_DIR, and the shared
-    # vendor tree and linker wrappers are siblings of the object store.
-    set env(SCCACHE_DIR) [file join $rustcache_dir sccache]
-    set env(SCCACHE_CACHE_SIZE) $rustcache_size
-    set env(SCCACHE_SERVER_UDS) [file join $rustcache_dir sccache.sock]
+    # The sccache settings are deliberately NOT exported here. Nothing in base
+    # reads them from the environment: the Rust PortGroup puts them in its own
+    # configure.env/build.env/destroot.env, and the two places base runs sccache
+    # itself pass them explicitly on the command line. Exporting them from here
+    # would put SCCACHE_DIR in every build's environment even when
+    # configurerustcache is no -- naming a directory the sandbox only grants
+    # write access to when it is yes. A build that finds sccache on its own then
+    # walks into a denied write, which is the failure mode ccache has already hit
+    # twice. See #85.
 
     # load caches on demand
     trace add variable macports::compiler_version_cache read macports::load_compiler_version_cache
