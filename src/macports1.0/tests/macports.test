@@ -31,8 +31,17 @@ test worker_parallel_jobs_default {
 
 
 test rustcache_defaults {
-    Rust compiler cache options have safe defaults and bootstrap metadata.
+    Rust compiler cache options have safe defaults and bootstrap metadata,
+    and mportinit exports none of them to the process environment.
 } -body {
+    # The three `info exists` checks are the regression guard for #85. mportinit
+    # used to export these unconditionally, which put SCCACHE_DIR in every
+    # build's environment even with configurerustcache no -- naming a directory
+    # the sandbox only grants when it is yes. Nothing in base reads them from the
+    # environment, so they are simply not exported now; the PortGroup sets its
+    # own phase env and base's own sccache invocations pass them on the command
+    # line. Assumes the test runner's own environment does not set them, which is
+    # true wherever mportinit is what would have.
     list \
         $macports::configurerustcache \
         $macports::rustcache_dir \
@@ -40,9 +49,9 @@ test rustcache_defaults {
         [dict exists $macports::bootstrap_options configurerustcache] \
         [dict get $macports::bootstrap_options rustcache_dir is_path] \
         [dict exists $macports::bootstrap_options rustcache_size] \
-        $::env(SCCACHE_DIR) \
-        $::env(SCCACHE_CACHE_SIZE) \
-        $::env(SCCACHE_SERVER_UDS)
+        [info exists ::env(SCCACHE_DIR)] \
+        [info exists ::env(SCCACHE_CACHE_SIZE)] \
+        [info exists ::env(SCCACHE_SERVER_UDS)]
 } -result [list \
     no \
     [file join $pwd tmpdir var macports build .rustcache] \
@@ -50,9 +59,9 @@ test rustcache_defaults {
     1 \
     1 \
     1 \
-    [file join $pwd tmpdir var macports build .rustcache sccache] \
-    20G \
-    [file join $pwd tmpdir var macports build .rustcache sccache.sock]]
+    0 \
+    0 \
+    0]
 
 
 test rustcache_cli_override {

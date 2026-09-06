@@ -57,7 +57,7 @@ test rustcache_start_server {
         ${configure.rustcache} \
         [file isdirectory $rustcache_dir] \
         [file isdirectory [file join $rustcache_dir sccache]] \
-        $sccache_command \
+        [string map [list $rustcache_dir @DIR@] $sccache_command] \
         [expr {$sccache_tmpdir eq $rustcache_dir}] \
         [expr {$env(TMPDIR) eq $original_tmpdir}]
 } -cleanup {
@@ -70,7 +70,7 @@ test rustcache_start_server {
         }
     }
     namespace delete rust
-} -result {yes 1 1 {sccache --start-server >/dev/null} 1 1}
+} -result {yes 1 1 {env SCCACHE_DIR=@DIR@/sccache SCCACHE_CACHE_SIZE=rustcache_size SCCACHE_SERVER_UDS=@DIR@/sccache.sock prefix/bin/sccache --start-server >/dev/null} 1 1}
 
 
 test rustcache_start_failure_disables_wrapper {
