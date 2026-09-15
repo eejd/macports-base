@@ -55,13 +55,14 @@ namespace eval macports {
         master_site_local patch_site_local archive_site_local fetch_credentials fetch_threads \
         buildfromsource revupgrade_autorun revupgrade_mode revupgrade_check_id_loadcmds \
         host_blacklist preferred_hosts sandbox_enable sandbox_network delete_la_files cxx_stdlib \
-        default_compilers pkg_post_unarchive_deletions ui_interactive toolchain_coherence] {
+        default_compilers pkg_post_unarchive_deletions ui_interactive toolchain_coherence \
+        toolchain_pin_sdk toolchain_pin_metal] {
             dict set bootstrap_options $opt {}
     }
     # Config file options that are a filesystem path and should be fully resolved
     foreach opt [list applications_dir archive_sites_conf ccache_dir rustcache_dir developer_dir \
                       frameworks_dir packagemaker_path portdbpath prefix pubkeys_conf \
-                      sources_conf variants_conf] {
+                      sources_conf variants_conf toolchain_pin_developer_dir] {
         dict set bootstrap_options $opt is_path 1
     }
     unset opt
@@ -79,7 +80,8 @@ namespace eval macports {
         developer_dir universal_archs build_arch os_arch os_endian os_version os_major os_minor \
         os_platform os_subplatform macos_version macos_version_major macosx_version macosx_sdk_version \
         macosx_deployment_target packagemaker_path default_compilers sandbox_enable sandbox_network \
-        delete_la_files cxx_stdlib pkg_post_unarchive_deletions toolchain_coherence {*}$user_options]
+        delete_la_files cxx_stdlib pkg_post_unarchive_deletions toolchain_coherence \
+        toolchain_pin_developer_dir toolchain_pin_sdk toolchain_pin_metal {*}$user_options]
 
     # Options set in the portfile interpreter but only in system_options
     variable portinterp_private_options [list clonebin_path macosx_sdk_path]
@@ -1109,6 +1111,9 @@ proc mportinit {{up_ui_options {}} {up_options {}} {up_variations {}}} {
         macports::macosx_sdk_version \
         macports::macosx_deployment_target \
         macports::toolchain_coherence \
+        macports::toolchain_pin_developer_dir \
+        macports::toolchain_pin_sdk \
+        macports::toolchain_pin_metal \
         macports::archivefetch_pubkeys \
         macports::delete_la_files \
         macports::cxx_stdlib \
@@ -1785,6 +1790,27 @@ match macports.conf.default."
         set toolchain_coherence warn
     }
 
+    # Declarative toolchain pin (issue #76 point 2): all three default
+    # empty (fully opt-in). toolchain_pin_developer_dir, when set,
+    # pre-empts developer_dir's own deferred-read trace
+    # (macports::set_developer_dir, installed later in this proc) --
+    # a pin always wins over any macports.conf developer_dir value too,
+    # since pinning is a deliberate, explicit override. Safe regardless
+    # of ordering against that trace-install: set_developer_dir's own
+    # body already starts with "if {[info exists developer_dir]} return".
+    if {![info exists toolchain_pin_developer_dir]} {
+        set toolchain_pin_developer_dir {}
+    }
+    if {![info exists toolchain_pin_sdk]} {
+        set toolchain_pin_sdk {}
+    }
+    if {![info exists toolchain_pin_metal]} {
+        set toolchain_pin_metal {}
+    }
+    if {$toolchain_pin_developer_dir ne ""} {
+        set developer_dir $toolchain_pin_developer_dir
+    }
+
     if {![info exists revupgrade_autorun]} {
         if {$os_platform eq "darwin"} {
             set revupgrade_autorun yes
@@ -1902,9 +1928,21 @@ match macports.conf.default."
         }
     } else {
         if {$os_platform eq "darwin" && ![file isdirectory $developer_dir]} {
-            ui_warn "Your developer_dir setting in macports.conf points to a non-existing directory.\
-                Since this is known to cause problems, please correct the setting or comment it and let\
-                macports auto-discover the correct path."
+            # This can now trip for two different reasons: a bad
+            # developer_dir setting (existing behavior), or a bad
+            # toolchain_pin_developer_dir (which, when set, is what
+            # actually set $developer_dir above, before this check ever
+            # ran) -- distinguish them so the warning names the setting
+            # the user actually needs to fix, per independent review of
+            # PR #97.
+            if {$toolchain_pin_developer_dir ne ""} {
+                ui_warn "Your toolchain_pin_developer_dir setting in macports.conf ('$developer_dir')\
+                    points to a non-existing directory."
+            } else {
+                ui_warn "Your developer_dir setting in macports.conf points to a non-existing directory.\
+                    Since this is known to cause problems, please correct the setting or comment it and let\
+                    macports auto-discover the correct path."
+            }
         }
     }
 
@@ -2227,6 +2265,7 @@ proc macports::worker_init {workername portpath porturl portbuildpath options va
     $workername alias macports::sdk_info portlib::toolchain::sdk_info
     $workername alias macports::metal_info portlib::toolchain::metal_info
     $workername alias macports::check_toolchain_coherence portlib::toolchain::check_coherence
+    $workername alias macports::resolve_toolchain_pin portlib::toolchain::resolve_pin
     $workername alias realpath realpath
     $workername alias _mportsearchpath _mportsearchpath
     $workername alias _portnameactive _portnameactive
