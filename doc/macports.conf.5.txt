@@ -179,6 +179,28 @@ toolchain_coherence::
     *Supported values:*;; `silent`, `warn`, `error`
     *Default:*;; `warn`
 
+toolchain_pin_developer_dir::
+    Force a specific Xcode or Command Line Tools installation, overriding
+    `developer_dir` above (if also set, the pin always wins). Opt-in only.
+    *Default:*;; none (not pinned)
+
+toolchain_pin_sdk::
+    Force a specific SDK, given as its `CanonicalName` (e.g.
+    `macosx15.2`, from `SDKSettings.plist`) rather than a directory name
+    -- a directory named e.g. `MacOSX15.sdk` is not necessarily version
+    15, or even 15.x. Searched for under `toolchain_pin_developer_dir` (or
+    the active developer dir) and the Command Line Tools SDKs directory.
+    Opt-in only.
+    *Default:*;; none (not pinned)
+
+toolchain_pin_metal::
+    Assert the expected Metal toolchain build (e.g. `27A266a`).
+    Validation only: MacPorts cannot itself choose which mounted Metal
+    toolchain macOS uses, so this only lets `port diagnose` (and a future
+    coherence check) confirm the build actually available matches what
+    you expect. Opt-in only.
+    *Default:*;; none (not pinned)
+
 macosx_deployment_target::
     Minimum macOS version that binaries built by MacPorts should support,
     e.g. "15.0". Exported to build processes as
