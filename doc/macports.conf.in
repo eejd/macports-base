@@ -45,10 +45,10 @@ portdbpath          	@localstatedir_expanded@/macports
 #default_compilers   	clang llvm-gcc-4.2 gcc-4.2
 
 # C++ standard library to use with Clang on macOS. Supported values are
-# "libc++" and "libstdc++". Defaults to "libc++" on Mac OS X 10.9 and
-# later and "libstdc++" on earlier versions. Most ports requiring C++11
-# or later force "libc++" regardless of this setting, since libstdc++ is
-# not available past Xcode 4.2's SDKs.
+# "libc++" and "libstdc++". Defaults to "libc++" on Mac OS X 10.6 Snow
+# Leopard and later and "libstdc++" on earlier versions. Most ports
+# requiring C++11 or later force "libc++" regardless of this setting,
+# since libstdc++ is not available past Xcode 4.2's SDKs.
 #cxx_stdlib          	libc++
 
 # Location of PackageMaker. Defaults to

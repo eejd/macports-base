@@ -164,7 +164,7 @@ xcodeversion::
     *Default:*;; none (determined automatically)
 
 macosx_sdk_version::
-    Version of the macOS SDK to request when building ports, e.g. "15.0".
+    Version of the macOS SDK to request when building ports, e.g. "15".
     This is a request, not a guarantee: if no installed SDK matches
     exactly, MacPorts falls back to the closest available version.
     *Default:*;; the major version of the running OS
@@ -181,8 +181,8 @@ cxx_stdlib::
     requiring `C++11` or later force `libc++` regardless of this setting,
     since `libstdc++` is not available past the Xcode 4.2 SDKs.
     *Supported values:*;; `libc++`, `libstdc++`
-    *Default (10.9 and later):*;; `libc++`
-    *Default (10.8 and earlier):*;; `libstdc++`
+    *Default (10.6 and later):*;; `libc++`
+    *Default (10.5 and earlier):*;; `libstdc++`
 
 startupitem_type::
     Set the default type of startupitems to be generated, overridable by
