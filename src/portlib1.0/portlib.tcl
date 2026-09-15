@@ -407,7 +407,7 @@ namespace eval portlib {
                 }
             }
 
-            global macports::xcodeversion macports::developer_dir
+            global macports::xcodeversion
             if {[vercmp $xcodeversion < 4.3]} {
                 set sdks_dir ${developer_dir}/SDKs
             } else {
