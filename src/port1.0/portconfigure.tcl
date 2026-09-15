@@ -420,6 +420,15 @@ proc portconfigure::sdk_info {} {
     return [_sdk_info ${configure.sdkroot}]
 }
 
+# Describe the Metal toolchain paired with configure.developer_dir: its
+# install status, build version/train, and where it's mounted. See
+# portlib::toolchain::metal_info for the return shape. Read-only; never
+# throws and never fetches a component.
+proc portconfigure::metal_toolchain_info {} {
+    global configure.developer_dir
+    return [_metal_info ${configure.developer_dir}]
+}
+
 # internal function to determine DEVELOPER_DIR according to Xcode dependency
 proc portconfigure::configure_get_developer_dir {} {
     global use_xcode developer_dir

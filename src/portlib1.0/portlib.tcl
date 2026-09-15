@@ -1196,6 +1196,270 @@ namespace eval portlib {
             dict set sdk_info_cache $sdkroot $info
             return $info
         }
+
+        # Disk cache for xcode_build_version and metal_info, backed by
+        # macports::load_cache/save_cache under a cache file NAME OF ITS
+        # OWN ("toolchaininfo"), distinct from macports::xcodeinfo. That
+        # cache is on the hot deferred-read path for every "port"
+        # invocation and carries delicate *_overridden override semantics
+        # this namespace has no business touching, so this namespace
+        # neither reads from nor writes to it.
+        #
+        # Shape:
+        #   os_major  <darwin major>                       ; invalidation
+        #   xcode     <checkfile path> {mtime <m> build_version <v>}
+        #   metal     <checkfile path> {xcode_build <v> info <metal_info dict>}
+        #             -- keyed by the SAME checkfile path as "xcode" above
+        #             (not by developer_dir directly, and not by build
+        #             version alone), so two distinct Xcode installations
+        #             are never collapsed into one cache slot even if
+        #             they happen to report the same build string.
+        variable toolchain_cache {}
+        variable toolchain_cache_loaded 0
+
+        proc load_toolchain_cache {} {
+            variable toolchain_cache
+            variable toolchain_cache_loaded
+            if {!$toolchain_cache_loaded} {
+                global macports::os_major
+                set toolchain_cache [macports::load_cache toolchaininfo]
+                if {[dict exists $toolchain_cache os_major]
+                        && [dict get $toolchain_cache os_major] != $os_major} {
+                    # OS major changed (e.g. an OS upgrade): the whole
+                    # cache could be describing a toolchain that no
+                    # longer applies, so start clean rather than trust
+                    # any of it.
+                    set toolchain_cache [dict create]
+                }
+                set toolchain_cache_loaded 1
+            }
+            return $toolchain_cache
+        }
+
+        proc save_toolchain_cache {} {
+            variable toolchain_cache
+            global macports::os_major macports::portdbpath
+            if {![info exists portdbpath] || ![file writable $portdbpath]} {
+                return
+            }
+            dict set toolchain_cache os_major $os_major
+            macports::save_cache toolchaininfo $toolchain_cache
+        }
+
+        # The Info.plist whose mtime signals "Xcode at $developer_dir was
+        # upgraded" -- same layout logic macports::setxcodeinfo uses
+        # (macports.tcl), duplicated here rather than shared because that
+        # proc's cache semantics (xcodeversion_overridden handling, the
+        # hot deferred-read path for every "port" invocation) don't apply
+        # to this namespace's own, separate disk cache.
+        proc xcode_checkfile {developer_dir} {
+            if {[file extension [file dirname [file dirname $developer_dir]]] eq ".app"} {
+                # New style, Developer dir inside Xcode.app
+                return [file dirname $developer_dir]/Info.plist
+            }
+            # Old style, Xcode.app inside Developer dir
+            return ${developer_dir}/Applications/Xcode.app/Contents/Info.plist
+        }
+
+        # Parse Apple's "build train" -- the numeric-plus-letter prefix of
+        # a build version string, e.g. "27A" out of "27A266a" -- out of
+        # $build. Returns {} when $build doesn't match the expected shape.
+        #
+        # This is an OPAQUE TOKEN FOR EQUALITY COMPARISON ONLY. Do not
+        # derive a marketing major.minor version from the letter: it is a
+        # sequence index, not a minor-version number, and Apple skips
+        # letters, e.g. Xcode 16.3 is build "16E140" while Xcode 16.4 is
+        # build "16F6" -- "E" is neither 4 nor reliably "one before F".
+        # All this namespace's Metal<->Xcode coherence check (issue #76's
+        # Axis C) ever needs is "do these two builds share a train", which
+        # this token answers correctly without ever naming a version.
+        proc build_train {build} {
+            if {[regexp {^([0-9]+[A-Z])} $build -> train]} {
+                return $train
+            }
+            return {}
+        }
+
+        variable xcode_build_version_cache [dict create]
+
+        # The build version of the Xcode (or CLT) toolchain at
+        # $developer_dir, e.g. "27A266a" -- the second line of
+        # `xcodebuild -version`. Returns {} on any failure: no
+        # xcodebuild, non-macOS, or unparseable output. Never throws.
+        #
+        # Cached in-process by $developer_dir, and on disk keyed by the
+        # Xcode installation's Info.plist mtime (see xcode_checkfile).
+        proc xcode_build_version {developer_dir} {
+            variable xcode_build_version_cache
+            if {[dict exists $xcode_build_version_cache $developer_dir]} {
+                return [dict get $xcode_build_version_cache $developer_dir]
+            }
+
+            set checkfile [xcode_checkfile $developer_dir]
+            set mtime {}
+            catch {set mtime [file mtime $checkfile]}
+
+            set cache [load_toolchain_cache]
+            if {$mtime ne "" && [dict exists $cache xcode $checkfile mtime]
+                    && [dict get $cache xcode $checkfile mtime] == $mtime
+                    && [dict exists $cache xcode $checkfile build_version]} {
+                set result [dict get $cache xcode $checkfile build_version]
+                dict set xcode_build_version_cache $developer_dir $result
+                return $result
+            }
+
+            set result {}
+            global macports::os_platform
+            if {[info exists os_platform] && $os_platform eq "darwin"} {
+                catch {
+                    set xcodebuild [macports::findBinary xcodebuild \
+                        ${::macports::autoconf::xcodebuild_path}]
+                    set out [exec -ignorestderr -- /usr/bin/env DEVELOPER_DIR=${developer_dir} \
+                        $xcodebuild -version 2> /dev/null]
+                    regexp {Build version (\S+)} $out -> result
+                }
+            }
+
+            if {$result ne "" && $mtime ne ""} {
+                variable toolchain_cache
+                dict set toolchain_cache xcode $checkfile mtime $mtime
+                dict set toolchain_cache xcode $checkfile build_version $result
+                save_toolchain_cache
+            }
+
+            dict set xcode_build_version_cache $developer_dir $result
+            return $result
+        }
+
+        variable metal_info_cache [dict create]
+
+        # Describe the Metal toolchain paired with the Xcode at
+        # $developer_dir. Returns a dict:
+        #   supported              1 when the separately-downloadable
+        #                          Metal-component concept applies at all
+        #                          (Xcode >= 26 on Darwin); 0 otherwise,
+        #                          in which case every other key is {}
+        #                          and no exec is ever attempted
+        #   status                 installed, notInstalled, downloadable,
+        #                          or {} (the probe itself failed)
+        #   build_version          e.g. "27A266a"
+        #   build_train            build_train of build_version, e.g. "27A"
+        #                          -- see build_train's doc comment: an
+        #                          opaque equality token, not a version
+        #   toolchain_identifier   e.g. "com.apple.dt.toolchain.Metal...."
+        #   toolchain_search_path  the mounted toolchain's root directory
+        #                          (a cryptex mount under
+        #                          /private/var/run/com.apple.security.cryptexd,
+        #                          containing Metal.xctoolchain/usr/bin).
+        #                          Exposed raw; composing a binary path
+        #                          under it is the caller's business
+        #   asset_path             the MobileAsset asset directory backing it
+        #   source                 xcodebuild (freshly probed), cache
+        #                          (disk cache hit, validated), or none
+        #                          (unsupported, or the probe failed)
+        #
+        # NEVER throws, never fetches, never calls -downloadComponent.
+        #
+        # Cached in-process by $developer_dir. Also disk-cached, but only
+        # when status is "installed" -- the Metal toolchain is a
+        # MobileAsset cryptex with its own lifecycle independent of
+        # Xcode's (it can be installed or evicted without Xcode changing,
+        # and its mount path's random suffix changes across remounts), so
+        # any other status is deliberately re-probed every invocation
+        # rather than risking a stale disk answer, and a disk hit is
+        # re-validated (the cached search path must still exist, and the
+        # cached Xcode build must still match) before being trusted.
+        proc metal_info {developer_dir} {
+            variable metal_info_cache
+            if {[dict exists $metal_info_cache $developer_dir]} {
+                return [dict get $metal_info_cache $developer_dir]
+            }
+
+            set unsupported [dict create supported 0 status {} \
+                build_version {} build_train {} toolchain_identifier {} \
+                toolchain_search_path {} asset_path {} source none]
+
+            global macports::os_platform macports::xcodeversion
+            if {![info exists os_platform] || $os_platform ne "darwin"} {
+                dict set metal_info_cache $developer_dir $unsupported
+                return $unsupported
+            }
+            # Read $xcodeversion directly rather than gating on
+            # [info exists xcodeversion] first: xcodeversion is set up
+            # with a deferred READ trace (macports::setxcodeinfo), and
+            # in Tcl "info exists" does not count as a read for trace
+            # purposes -- so if metal_info happened to be the first code
+            # to ever touch xcodeversion (e.g. a PortGroup calling the
+            # fully-qualified macports::metal_info alias before anything
+            # else reads it), an [info exists] gate here would see an
+            # still-unset variable and report "unsupported" even on a
+            # host where Xcode >= 26 is very much installed. Reading the
+            # value directly, inside a catch, lets the trace fire (and
+            # still degrades safely if it can't).
+            if {[catch {expr {$xcodeversion eq "none" ? -1 : [vercmp $xcodeversion 26]}} cmp]
+                    || $cmp < 0} {
+                dict set metal_info_cache $developer_dir $unsupported
+                return $unsupported
+            }
+
+            set xcode_build [xcode_build_version $developer_dir]
+            # The disk cache's "metal" entry is keyed by the SAME
+            # checkfile path xcode_build_version's own "xcode" entry
+            # uses (see xcode_checkfile), not by developer_dir directly,
+            # so two distinct Xcode installations are never collapsed
+            # into one slot even if -- purely coincidentally -- they
+            # report the same build string.
+            set checkfile [xcode_checkfile $developer_dir]
+
+            set cache [load_toolchain_cache]
+            if {$xcode_build ne "" && [dict exists $cache metal $checkfile xcode_build]
+                    && [dict get $cache metal $checkfile xcode_build] eq $xcode_build
+                    && [dict exists $cache metal $checkfile info]} {
+                set cached [dict get $cache metal $checkfile info]
+                if {[dict get $cached status] eq "installed"
+                        && [dict get $cached toolchain_search_path] ne ""
+                        && [file isdirectory [dict get $cached toolchain_search_path]]} {
+                    set result $cached
+                    dict set result source cache
+                    dict set metal_info_cache $developer_dir $result
+                    return $result
+                }
+            }
+
+            set result [dict create supported 1 status {} build_version {} \
+                build_train {} toolchain_identifier {} toolchain_search_path {} \
+                asset_path {} source none]
+            catch {
+                set xcodebuild [macports::findBinary xcodebuild \
+                    ${::macports::autoconf::xcodebuild_path}]
+                set json [exec -ignorestderr -- /usr/bin/env DEVELOPER_DIR=${developer_dir} \
+                    $xcodebuild -json -showComponent MetalToolchain 2> /dev/null]
+                set status [plist_value [list data $json] status]
+                if {$status ne ""} {
+                    set build_version [plist_value [list data $json] buildVersion]
+                    dict set result status $status
+                    dict set result build_version $build_version
+                    dict set result build_train [build_train $build_version]
+                    dict set result toolchain_identifier \
+                        [plist_value [list data $json] toolchainIdentifier]
+                    dict set result toolchain_search_path \
+                        [plist_value [list data $json] toolchainSearchPath]
+                    dict set result asset_path \
+                        [plist_value [list data $json] assetPath]
+                    dict set result source xcodebuild
+                }
+            }
+
+            if {[dict get $result status] eq "installed"} {
+                variable toolchain_cache
+                dict set toolchain_cache metal $checkfile xcode_build $xcode_build
+                dict set toolchain_cache metal $checkfile info $result
+                save_toolchain_cache
+            }
+
+            dict set metal_info_cache $developer_dir $result
+            return $result
+        }
     }
 
     namespace eval extract {
