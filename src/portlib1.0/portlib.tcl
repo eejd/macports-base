@@ -402,7 +402,18 @@ namespace eval portlib {
                 set sdks_dir ${developer_dir}/Platforms/MacOSX.platform/Developer/SDKs
             }
 
-            foreach try_path [list ${sdks_dir} ${cltpath}/SDKs] {
+            # When use_xcode is set, only search Xcode's own SDKs directory here.
+            # Falling through to the CommandLineTools SDKs would silently pair
+            # Xcode's DEVELOPER_DIR with a CLT-only SDK, which can be a different
+            # (e.g. newer) version than anything the active Xcode actually
+            # supports. See <https://trac.macports.org/ticket/57143> for the
+            # rationale behind trying $cltpath/SDKs at all in the !use_xcode case.
+            if {$use_xcode} {
+                set try_paths [list ${sdks_dir}]
+            } else {
+                set try_paths [list ${sdks_dir} ${cltpath}/SDKs]
+            }
+            foreach try_path $try_paths {
                 if {$sdk_version eq "10.4"} {
                     set sdk ${try_path}/MacOSX10.4u.sdk
                 } else {
@@ -436,7 +447,12 @@ namespace eval portlib {
                 }
             }
 
-            if {$result eq {}} {
+            # As above: don't reach into the CommandLineTools SDKs when
+            # use_xcode is set, to avoid pairing Xcode's DEVELOPER_DIR with a
+            # CLT-only SDK. This fallback only applies to the !use_xcode case,
+            # where it's the last CLT-specific attempt before falling through
+            # to Xcode-based (or bare xcrun) resolution below.
+            if {$result eq {} && !$use_xcode} {
                 set sdk ${cltpath}/SDKs/MacOSX${sdk_version}.sdk
                 if {[file_exists $sdk]} {
                     set result $sdk

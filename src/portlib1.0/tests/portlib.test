@@ -45,6 +45,114 @@ test get_archive_sites_conf_values {
 } -result "Get archive sites conf values successful."
 
 
+test get_sdkroot_use_xcode_prefers_xcode_sdk {
+    Regression test for base issue #75: with use_xcode set, get_sdkroot must
+    resolve the SDK from Xcode's own SDKs directory when it has a match,
+    even if the requested sdk_version equals the running macOS major
+    version (the case that made a CommandLineTools SDK look "closer").
+} -setup {
+    set ::_gsr_saved(developer_dir) $::macports::developer_dir
+    set ::_gsr_saved(xcodeversion) $::macports::xcodeversion
+    set ::_gsr_saved(macos_version_major) $::macports::macos_version_major
+    set ::_gsr_saved(macos_version) $::macports::macos_version
+
+    set ::macports::developer_dir /Applications/Xcode.app/Contents/Developer
+    set ::macports::xcodeversion 16.0
+    set ::macports::macos_version_major 15
+    set ::macports::macos_version 15.0
+
+    set ::portlib::configure::sdkroot_cache [dict create]
+
+    rename ::portlib::configure::file_exists ::_gsr_real_file_exists
+    proc ::portlib::configure::file_exists {path} {
+        return [expr {$path eq "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.sdk"}]
+    }
+} -body {
+    portlib::configure::get_sdkroot 15 1
+} -cleanup {
+    rename ::portlib::configure::file_exists {}
+    rename ::_gsr_real_file_exists ::portlib::configure::file_exists
+    set ::macports::developer_dir $::_gsr_saved(developer_dir)
+    set ::macports::xcodeversion $::_gsr_saved(xcodeversion)
+    set ::macports::macos_version_major $::_gsr_saved(macos_version_major)
+    set ::macports::macos_version $::_gsr_saved(macos_version)
+    set ::portlib::configure::sdkroot_cache [dict create]
+    array unset ::_gsr_saved
+} -result "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.sdk"
+
+
+test get_sdkroot_use_xcode_does_not_cross_to_clt {
+    Regression test for base issue #75: with use_xcode set, get_sdkroot must
+    never fall through to a CommandLineTools-only SDK, even when one is
+    present and Xcode's own SDKs directory has no match -- returning that
+    SDK would pair Xcode's DEVELOPER_DIR with a different toolchain's
+    SDKROOT. Simulates the reported failure mode: Xcode ships an older SDK
+    (or none at that version) while the standalone CommandLineTools ship a
+    newer one matching the running OS major version.
+} -setup {
+    set ::_gsr_saved(developer_dir) $::macports::developer_dir
+    set ::_gsr_saved(xcodeversion) $::macports::xcodeversion
+    set ::_gsr_saved(macos_version_major) $::macports::macos_version_major
+    set ::_gsr_saved(macos_version) $::macports::macos_version
+
+    set ::macports::developer_dir /Applications/Xcode.app/Contents/Developer
+    set ::macports::xcodeversion 16.0
+    set ::macports::macos_version_major 15
+    set ::macports::macos_version 15.0
+
+    set ::portlib::configure::sdkroot_cache [dict create]
+
+    # Only the CommandLineTools path "exists" -- the bug scenario.
+    rename ::portlib::configure::file_exists ::_gsr_real_file_exists
+    proc ::portlib::configure::file_exists {path} {
+        return [expr {$path eq "/Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk"}]
+    }
+    rename ::portlib::configure::find_close_sdk ::_gsr_real_find_close_sdk
+    proc ::portlib::configure::find_close_sdk {sdk_version sdk_path} {
+        return {}
+    }
+    rename ::exec ::_gsr_real_exec
+    proc ::exec {args} {
+        error "exec disabled for get_sdkroot_use_xcode_does_not_cross_to_clt"
+    }
+} -body {
+    portlib::configure::get_sdkroot 15 1
+} -cleanup {
+    rename ::exec {}
+    rename ::_gsr_real_exec ::exec
+    rename ::portlib::configure::find_close_sdk {}
+    rename ::_gsr_real_find_close_sdk ::portlib::configure::find_close_sdk
+    rename ::portlib::configure::file_exists {}
+    rename ::_gsr_real_file_exists ::portlib::configure::file_exists
+    set ::macports::developer_dir $::_gsr_saved(developer_dir)
+    set ::macports::xcodeversion $::_gsr_saved(xcodeversion)
+    set ::macports::macos_version_major $::_gsr_saved(macos_version_major)
+    set ::macports::macos_version $::_gsr_saved(macos_version)
+    set ::portlib::configure::sdkroot_cache [dict create]
+    array unset ::_gsr_saved
+} -result {}
+
+
+test get_sdkroot_no_use_xcode_still_prefers_clt {
+    Confirms the !use_xcode search order is unchanged by the use_xcode fix
+    above: without use_xcode, get_sdkroot must still resolve from the
+    CommandLineTools SDKs directory first.
+} -setup {
+    set ::portlib::configure::sdkroot_cache [dict create]
+
+    rename ::portlib::configure::file_exists ::_gsr_real_file_exists
+    proc ::portlib::configure::file_exists {path} {
+        return [expr {$path eq "/Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk"}]
+    }
+} -body {
+    portlib::configure::get_sdkroot 15 0
+} -cleanup {
+    rename ::portlib::configure::file_exists {}
+    rename ::_gsr_real_file_exists ::portlib::configure::file_exists
+    set ::portlib::configure::sdkroot_cache [dict create]
+} -result "/Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk"
+
+
 test supportedArchiveTypes {
     Supported archive types unit test.
     Only tests xar, zip, cpio.
