@@ -31,7 +31,7 @@ test get_compatible_xcode_versions_macos27 {
     macports::get_compatible_xcode_versions
 } -cleanup {
     set ::macports::macos_version_major $::_gcxv_saved_macos_version_major
-    unset ::_gcxv_saved_macos_version_major
+    unset -nocomplain ::_gcxv_saved_macos_version_major
 } -result {27.0 27.0 27.0}
 
 
@@ -46,7 +46,7 @@ test get_compatible_xcode_versions_unknown_newer_os {
     macports::get_compatible_xcode_versions
 } -cleanup {
     set ::macports::macos_version_major $::_gcxv_saved_macos_version_major
-    unset ::_gcxv_saved_macos_version_major
+    unset -nocomplain ::_gcxv_saved_macos_version_major
 } -result {27.0 27.0 27.0}
 
 
