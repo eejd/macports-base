@@ -153,6 +153,122 @@ test get_sdkroot_no_use_xcode_still_prefers_clt {
 } -result "/Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk"
 
 
+test get_sdkroot_no_use_xcode_falls_through_to_xcode_sdks_dir {
+    Coverage gap flagged in independent review of PR #89: without
+    use_xcode, if the CommandLineTools search finds nothing at all,
+    get_sdkroot must still fall through to the shared search block and
+    find a match under Xcode's own SDKs directory -- exercising the
+    try_paths list construction and the !use_xcode-gated fallback added
+    by the fix, neither of which
+    get_sdkroot_no_use_xcode_still_prefers_clt reaches (it returns from
+    the CommandLineTools-only early block before either changed line).
+} -setup {
+    set ::_gsr_saved(developer_dir) $::macports::developer_dir
+    set ::_gsr_saved(xcodeversion) $::macports::xcodeversion
+    set ::_gsr_saved(macos_version_major) $::macports::macos_version_major
+    set ::_gsr_saved(macos_version) $::macports::macos_version
+
+    set ::macports::developer_dir /Applications/Xcode.app/Contents/Developer
+    set ::macports::xcodeversion 16.0
+    set ::macports::macos_version_major 15
+    set ::macports::macos_version 15.0
+
+    set ::portlib::configure::sdkroot_cache [dict create]
+
+    # Nothing matches under CommandLineTools; only Xcode's own SDKs
+    # directory has the requested version.
+    rename ::portlib::configure::file_exists ::_gsr_real_file_exists
+    proc ::portlib::configure::file_exists {path} {
+        return [expr {$path eq "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.sdk"}]
+    }
+    rename ::portlib::configure::find_close_sdk ::_gsr_real_find_close_sdk
+    proc ::portlib::configure::find_close_sdk {sdk_version sdk_path} {
+        return {}
+    }
+    rename ::exec ::_gsr_real_exec
+    proc ::exec {args} {
+        error "exec disabled for get_sdkroot_no_use_xcode_falls_through_to_xcode_sdks_dir"
+    }
+} -body {
+    portlib::configure::get_sdkroot 15 0
+} -cleanup {
+    rename ::exec {}
+    rename ::_gsr_real_exec ::exec
+    rename ::portlib::configure::find_close_sdk {}
+    rename ::_gsr_real_find_close_sdk ::portlib::configure::find_close_sdk
+    rename ::portlib::configure::file_exists {}
+    rename ::_gsr_real_file_exists ::portlib::configure::file_exists
+    set ::macports::developer_dir $::_gsr_saved(developer_dir)
+    set ::macports::xcodeversion $::_gsr_saved(xcodeversion)
+    set ::macports::macos_version_major $::_gsr_saved(macos_version_major)
+    set ::macports::macos_version $::_gsr_saved(macos_version)
+    set ::portlib::configure::sdkroot_cache [dict create]
+    array unset ::_gsr_saved
+} -result "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.sdk"
+
+
+test get_sdkroot_use_xcode_falls_through_to_xcrun {
+    Coverage gap flagged in independent review of PR #89: with use_xcode
+    set, if no SDK is found on disk under Xcode's own SDKs directory,
+    get_sdkroot must still resolve via the bare `xcrun --sdk
+    macosx<version>` fallback (which respects xcode-select's active
+    developer directory) -- proving that path is actually reached, not
+    just that the CommandLineTools crossing is avoided (which
+    get_sdkroot_use_xcode_does_not_cross_to_clt already covers by
+    disabling exec entirely).
+} -setup {
+    set ::_gsr_saved(developer_dir) $::macports::developer_dir
+    set ::_gsr_saved(xcodeversion) $::macports::xcodeversion
+    set ::_gsr_saved(macos_version_major) $::macports::macos_version_major
+    set ::_gsr_saved(macos_version) $::macports::macos_version
+
+    set ::macports::developer_dir /Applications/Xcode.app/Contents/Developer
+    set ::macports::xcodeversion 16.0
+    set ::macports::macos_version_major 15
+    set ::macports::macos_version 15.0
+
+    set ::portlib::configure::sdkroot_cache [dict create]
+
+    rename ::portlib::configure::file_exists ::_gsr_real_file_exists
+    proc ::portlib::configure::file_exists {path} {
+        return 0
+    }
+    rename ::portlib::configure::find_close_sdk ::_gsr_real_find_close_sdk
+    proc ::portlib::configure::find_close_sdk {sdk_version sdk_path} {
+        return {}
+    }
+    # Only succeed for the specific xcrun --sdk macosx15... probe used by
+    # the try_versions/exec fallback, so this test proves that exact path
+    # is reached rather than passing via some other exec call (e.g. the
+    # final bare `xcrun --sdk macosx` fallback, which never mentions
+    # "macosx15").
+    rename ::exec ::_gsr_real_exec
+    proc ::exec {args} {
+        foreach a $args {
+            if {[string match "macosx15*" $a]} {
+                return "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk"
+            }
+        }
+        error "exec disabled except for the macosx15* xcrun probe in get_sdkroot_use_xcode_falls_through_to_xcrun"
+    }
+} -body {
+    portlib::configure::get_sdkroot 15 1
+} -cleanup {
+    rename ::exec {}
+    rename ::_gsr_real_exec ::exec
+    rename ::portlib::configure::find_close_sdk {}
+    rename ::_gsr_real_find_close_sdk ::portlib::configure::find_close_sdk
+    rename ::portlib::configure::file_exists {}
+    rename ::_gsr_real_file_exists ::portlib::configure::file_exists
+    set ::macports::developer_dir $::_gsr_saved(developer_dir)
+    set ::macports::xcodeversion $::_gsr_saved(xcodeversion)
+    set ::macports::macos_version_major $::_gsr_saved(macos_version_major)
+    set ::macports::macos_version $::_gsr_saved(macos_version)
+    set ::portlib::configure::sdkroot_cache [dict create]
+    array unset ::_gsr_saved
+} -result "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk"
+
+
 test supportedArchiveTypes {
     Supported archive types unit test.
     Only tests xar, zip, cpio.
