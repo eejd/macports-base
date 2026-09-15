@@ -1113,7 +1113,8 @@ namespace eval portlib {
         #   display_name    SDKSettings.plist's DisplayName
         #   provider        xcode, clt, or other, from where $sdkroot
         #                   actually resolves to on disk (not from which
-        #                   tree get_sdkroot happened to search)
+        #                   tree get_sdkroot happened to search); {} when
+        #                   source is none
         #   developer_dir   the developer dir implied by "provider", or {}
         #   source          plist (SDKSettings.plist was read successfully),
         #                   path (it wasn't; version was parsed from the
@@ -1142,12 +1143,17 @@ namespace eval portlib {
             catch {set real_path [realpath $sdkroot]}
 
             global macports::developer_dir
+            # Use string first/prefix comparison rather than string match:
+            # developer_dir is a macports.conf-settable, is_path-resolved
+            # value and could contain glob metacharacters ("*", "?", "["),
+            # which string match's pattern argument would then interpret
+            # literally as wildcards instead of as path characters.
             set clt_dir /Library/Developer/CommandLineTools
-            if {[string match "${clt_dir}*" $real_path]} {
+            if {[string first $clt_dir $real_path] == 0} {
                 set provider clt
                 set provider_dir $clt_dir
             } elseif {[info exists developer_dir] && $developer_dir ne ""
-                    && [string match "${developer_dir}*" $real_path]} {
+                    && [string first $developer_dir $real_path] == 0} {
                 set provider xcode
                 set provider_dir $developer_dir
             } elseif {[regexp {^(.*\.app/Contents/Developer)(/|$)} $real_path -> match]} {

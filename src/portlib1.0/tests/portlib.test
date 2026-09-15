@@ -382,6 +382,36 @@ test sdk_info_provider_identifies_clt_vs_xcode {
 } -result {clt /Library/Developer/CommandLineTools xcode /_test_xcode/Xcode.app/Contents/Developer other {}}
 
 
+test sdk_info_provider_regexp_fallback_for_other_xcode_installs {
+    Coverage gap flagged in independent review of PR #93: the CLT-prefix
+    and developer_dir-prefix checks above don't exercise the third
+    provider branch -- the ".app/Contents/Developer" regexp fallback that
+    identifies an SDK as belonging to Xcode even when it comes from an
+    Xcode.app that isn't the currently-active developer_dir (e.g. a second
+    Xcode install selected only for this one SDK lookup, not via
+    xcode-select). Uses a developer_dir that matches neither the CLT
+    prefix nor the SDK path, so only the regexp branch can produce a
+    non-"other" result.
+} -setup {
+    set ::_si_saved_developer_dir $::macports::developer_dir
+    set ::macports::developer_dir /_test_active_xcode/Xcode.app/Contents/Developer
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    rename ::exec ::_si_real_exec
+    proc ::exec {args} {
+        error "exec disabled for sdk_info_provider_regexp_fallback_for_other_xcode_installs"
+    }
+} -body {
+    set info [portlib::toolchain::sdk_info /_test_other_xcode/Xcode-beta.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX28.sdk]
+    list [dict get $info provider] [dict get $info developer_dir]
+} -cleanup {
+    rename ::exec {}
+    rename ::_si_real_exec ::exec
+    set ::macports::developer_dir $::_si_saved_developer_dir
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_si_saved_developer_dir
+} -result {xcode /_test_other_xcode/Xcode-beta.app/Contents/Developer}
+
+
 test sdk_info_cache_keyed_by_path_not_by_sdk_version_use_xcode {
     Unlike configure::sdkroot_cache (keyed only on sdk_version,use_xcode,
     so it cannot distinguish two different resolved paths for the same
