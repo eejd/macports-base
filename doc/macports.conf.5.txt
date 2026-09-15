@@ -169,6 +169,16 @@ macosx_sdk_version::
     exactly, MacPorts falls back to the closest available version.
     *Default:*;; the major version of the running OS
 
+toolchain_coherence::
+    Whether to check that the resolved SDK/compiler/Metal toolchain is a
+    combination Apple actually shipped, and what to do about it if not.
+    `warn` reports a finding for each port that has one, without failing
+    the build; `silent` skips the check entirely; `error` fails the build
+    on the first finding. Also settable per invocation, e.g. `port install
+    foo toolchain_coherence=error`.
+    *Supported values:*;; `silent`, `warn`, `error`
+    *Default:*;; `warn`
+
 macosx_deployment_target::
     Minimum macOS version that binaries built by MacPorts should support,
     e.g. "15.0". Exported to build processes as

@@ -33,6 +33,14 @@ portdbpath          	@localstatedir_expanded@/macports
 # available version.
 #macosx_sdk_version  	15
 
+# Whether to check that the resolved SDK/compiler/Metal toolchain is a
+# combination Apple actually shipped, and what to do about it if not.
+# "warn" reports a finding for each port that has one, without failing
+# the build; "silent" skips the check entirely; "error" fails the build
+# on the first finding. Also settable per invocation, e.g. "port install
+# foo toolchain_coherence=error".
+#toolchain_coherence 	warn
+
 # Minimum macOS version that built binaries should support. Defaults to
 # the major version of the running OS, as "<major>.0", on macOS 11 and
 # later (e.g. "15.0" on any macOS 15.x host).

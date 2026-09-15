@@ -972,6 +972,524 @@ test metal_info_disk_cache_rejected_when_xcode_build_changed {
 } -result {27A266a xcodebuild 27B100 xcodebuild 2}
 
 
+# check_coherence tests. A helper to build a real SDKSettings.plist
+# fixture -- like #93's sdk_info_reads_real_version_not_path -- since
+# check_coherence's Axis A reads sdk_info, which reads the plist via the
+# real plutil(1) (no exec stubbing needed or wanted for this: proving
+# the real plist-parsing path is exercised, exactly as #93 established).
+proc _coherence_make_sdk {dir version canonical_name} {
+    file mkdir $dir
+    set fd [open $dir/SDKSettings.plist w]
+    puts $fd "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+<plist version=\"1.0\">
+<dict>
+	<key>Version</key>
+	<string>${version}</string>
+	<key>CanonicalName</key>
+	<string>${canonical_name}</string>
+	<key>DisplayName</key>
+	<string>macOS ${version}</string>
+</dict>
+</plist>"
+    close $fd
+}
+
+
+test coherence_default_config_is_silent {
+    The compatibility-gate guard: a default, coherent configuration --
+    bare-major SDK request matching the real resolved SDK's major, active
+    Xcode generation at or above the SDK, no needs_metal -- must produce
+    ZERO findings of any severity. This is the single test standing
+    between this whole series and warning on every port on every Mac
+    (issue #76's H7 hazard).
+} -setup {
+    set ::_ch_sdkdir $pwd/tmp_coherence_default/MacOSX27.sdk
+    _coherence_make_sdk $::_ch_sdkdir 27.0 macosx27.0
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    set ctx [dict create \
+        sdk_request     27 \
+        sdkroot         $::_ch_sdkdir \
+        developer_dir   /Applications/Xcode.app/Contents/Developer \
+        use_xcode       1 \
+        xcodeversion    27.0 \
+        xcodecltversion 27.0 \
+        compiler        clang \
+        needs_metal     0]
+    llength [portlib::toolchain::check_coherence $ctx]
+} -cleanup {
+    file delete -force $pwd/tmp_coherence_default
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_ch_sdkdir
+} -result {0}
+
+
+test coherence_empty_sdk_request_is_silent {
+    Regression coverage flagged in independent review of PR #96: an empty
+    sdk_request is a legitimate, deliberate case (a port that clears
+    configure.sdk_version to opt into the DevSDK path -- see
+    _check_xcode_version's own identical "configure.sdk_version ne {}"
+    guard), not "request the empty SDK". configure.sdkroot's default can
+    still resolve to a real, plist-bearing path even when sdk_version is
+    "" (get_sdkroot falls through to the bare CommandLineTools
+    "MacOSX.sdk" symlink), so this must stay silent rather than reporting
+    a spurious major mismatch against whatever that symlink resolves to.
+} -setup {
+    set ::_ch_sdkdir $pwd/tmp_coherence_empty_request/MacOSX.sdk
+    _coherence_make_sdk $::_ch_sdkdir 27.0 macosx27.0
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    set ctx [dict create \
+        sdk_request     {} \
+        sdkroot         $::_ch_sdkdir \
+        developer_dir   /Applications/Xcode.app/Contents/Developer \
+        use_xcode       0 \
+        xcodeversion    27.0 \
+        xcodecltversion 27.0 \
+        compiler        clang \
+        needs_metal     0]
+    llength [portlib::toolchain::check_coherence $ctx]
+} -cleanup {
+    file delete -force $pwd/tmp_coherence_empty_request
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_ch_sdkdir
+} -result {0}
+
+
+test coherence_sdk_request_minor_drift_is_silent {
+    A bare-major request satisfied by a real SDK with a non-.0 minor
+    (e.g. request "26", real "26.5" -- the CLT's actual shape on this
+    fork's SDK trees) must produce zero NOTICE findings. An info finding
+    recording the drift is fine and expected (reserved for a future
+    `port diagnose`), but must never be escalated.
+} -setup {
+    set ::_ch_sdkdir $pwd/tmp_coherence_minor_drift/MacOSX26.sdk
+    _coherence_make_sdk $::_ch_sdkdir 26.5 macosx26.5
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    set ctx [dict create \
+        sdk_request     26 \
+        sdkroot         $::_ch_sdkdir \
+        developer_dir   /Applications/Xcode.app/Contents/Developer \
+        use_xcode       1 \
+        xcodeversion    27.0 \
+        xcodecltversion 27.0 \
+        compiler        clang \
+        needs_metal     0]
+    set findings [portlib::toolchain::check_coherence $ctx]
+    llength [lsearch -all -inline [lmap f $findings {dict get $f severity}] notice]
+} -cleanup {
+    file delete -force $pwd/tmp_coherence_minor_drift
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_ch_sdkdir
+} -result {0}
+
+
+test coherence_sdk_path_fallback_bare_major_is_silent {
+    Regression coverage flagged in independent review of PR #96: when
+    sdk_info falls back to parsing the SDK version out of the directory
+    name (source "path", e.g. SDKSettings.plist is unreadable), that
+    fallback can itself be just the bare major with no minor at all
+    (e.g. "27" for a directory literally named "MacOSX27.sdk"). Axis A's
+    info branch must not report this as "minor drift" when it exactly
+    equals the bare-major request -- there is no drift, just missing
+    precision, and claiming "resolved to 27" for a request of "27" is
+    nonsensical.
+} -setup {
+    set ::_ch_sdkdir $pwd/tmp_coherence_path_fallback/MacOSX27.sdk
+    file mkdir $::_ch_sdkdir
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    set ctx [dict create \
+        sdk_request     27 \
+        sdkroot         $::_ch_sdkdir \
+        developer_dir   /Applications/Xcode.app/Contents/Developer \
+        use_xcode       1 \
+        xcodeversion    27.0 \
+        xcodecltversion 27.0 \
+        compiler        clang \
+        needs_metal     0]
+    llength [portlib::toolchain::check_coherence $ctx]
+} -cleanup {
+    file delete -force $pwd/tmp_coherence_path_fallback
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_ch_sdkdir
+} -result {0}
+
+
+test coherence_sdk_request_major_mismatch_reported {
+    A bare-major request NOT matching the real SDK's major (request "26",
+    real "27.0") must produce exactly one notice finding, axis A.
+} -setup {
+    set ::_ch_sdkdir $pwd/tmp_coherence_major_mismatch/MacOSX.sdk
+    _coherence_make_sdk $::_ch_sdkdir 27.0 macosx27.0
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    set ctx [dict create \
+        sdk_request     26 \
+        sdkroot         $::_ch_sdkdir \
+        developer_dir   /Applications/Xcode.app/Contents/Developer \
+        use_xcode       1 \
+        xcodeversion    27.0 \
+        xcodecltversion 27.0 \
+        compiler        clang \
+        needs_metal     0]
+    set findings [portlib::toolchain::check_coherence $ctx]
+    list [llength $findings] [dict get [lindex $findings 0] axis] \
+        [dict get [lindex $findings 0] severity]
+} -cleanup {
+    file delete -force $pwd/tmp_coherence_major_mismatch
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_ch_sdkdir
+} -result {1 A notice}
+
+
+test coherence_sdk_explicit_minor_mismatch_reported {
+    An explicit-minor request (contains a ".") is compared at full
+    precision, not just major: request "26.3" against a real "26.5" must
+    report a notice finding even though the majors agree.
+} -setup {
+    set ::_ch_sdkdir $pwd/tmp_coherence_minor_mismatch/MacOSX26.sdk
+    _coherence_make_sdk $::_ch_sdkdir 26.5 macosx26.5
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    set ctx [dict create \
+        sdk_request     26.3 \
+        sdkroot         $::_ch_sdkdir \
+        developer_dir   /Applications/Xcode.app/Contents/Developer \
+        use_xcode       1 \
+        xcodeversion    27.0 \
+        xcodecltversion 27.0 \
+        compiler        clang \
+        needs_metal     0]
+    set findings [portlib::toolchain::check_coherence $ctx]
+    list [llength $findings] [dict get [lindex $findings 0] axis] \
+        [dict get [lindex $findings 0] severity]
+} -cleanup {
+    file delete -force $pwd/tmp_coherence_minor_mismatch
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_ch_sdkdir
+} -result {1 A notice}
+
+
+test coherence_sdk_older_than_compiler_is_silent {
+    Axis B is one-directional: an SDK OLDER than the active Xcode/CLT
+    generation is completely normal and must never be reported, at any
+    distance. Request matches the real SDK exactly, so this isolates
+    Axis B from Axis A.
+} -setup {
+    set ::_ch_sdkdir $pwd/tmp_coherence_older/MacOSX26.sdk
+    _coherence_make_sdk $::_ch_sdkdir 26.0 macosx26.0
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    set ctx [dict create \
+        sdk_request     26 \
+        sdkroot         $::_ch_sdkdir \
+        developer_dir   /Applications/Xcode.app/Contents/Developer \
+        use_xcode       1 \
+        xcodeversion    27.0 \
+        xcodecltversion 27.0 \
+        compiler        clang \
+        needs_metal     0]
+    llength [portlib::toolchain::check_coherence $ctx]
+} -cleanup {
+    file delete -force $pwd/tmp_coherence_older
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_ch_sdkdir
+} -result {0}
+
+
+test coherence_sdk_ahead_of_compiler_reported {
+    Axis B's other direction: an SDK NEWER than the active Xcode/CLT
+    generation (major comparison only) must report a notice finding.
+    Request matches the real SDK exactly, isolating Axis B from Axis A.
+} -setup {
+    set ::_ch_sdkdir $pwd/tmp_coherence_ahead/MacOSX28.sdk
+    _coherence_make_sdk $::_ch_sdkdir 28.0 macosx28.0
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    set ctx [dict create \
+        sdk_request     28 \
+        sdkroot         $::_ch_sdkdir \
+        developer_dir   /Applications/Xcode.app/Contents/Developer \
+        use_xcode       1 \
+        xcodeversion    27.0 \
+        xcodecltversion 27.0 \
+        compiler        clang \
+        needs_metal     0]
+    set findings [portlib::toolchain::check_coherence $ctx]
+    list [llength $findings] [dict get [lindex $findings 0] axis] \
+        [dict get [lindex $findings 0] severity]
+} -cleanup {
+    file delete -force $pwd/tmp_coherence_ahead
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_ch_sdkdir
+} -result {1 B notice}
+
+
+test coherence_skips_macports_compiler {
+    Axis B must be skipped entirely for a macports-provided compiler
+    (compiler_is_port true): its version numbering has no relationship
+    to Xcode/CLT generations at all. Same otherwise-Axis-B-triggering
+    setup as coherence_sdk_ahead_of_compiler_reported.
+} -setup {
+    set ::_ch_sdkdir $pwd/tmp_coherence_skip_port/MacOSX28.sdk
+    _coherence_make_sdk $::_ch_sdkdir 28.0 macosx28.0
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    set ctx [dict create \
+        sdk_request     28 \
+        sdkroot         $::_ch_sdkdir \
+        developer_dir   /Applications/Xcode.app/Contents/Developer \
+        use_xcode       1 \
+        xcodeversion    27.0 \
+        xcodecltversion 27.0 \
+        compiler        macports-clang-17 \
+        needs_metal     0]
+    llength [portlib::toolchain::check_coherence $ctx]
+} -cleanup {
+    file delete -force $pwd/tmp_coherence_skip_port
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_ch_sdkdir
+} -result {0}
+
+
+test coherence_metal_not_checked_without_needs_metal {
+    Axis C must not run at all -- not even a metal_info call -- for a
+    port that never set needs_metal. Proven by checking metal_info_cache
+    remains unpopulated for the ctx developer_dir afterward, rather than
+    by disabling exec (which Axis A/B's real plutil call still needs).
+} -setup {
+    set ::_ch_sdkdir $pwd/tmp_coherence_no_metal/MacOSX27.sdk
+    _coherence_make_sdk $::_ch_sdkdir 27.0 macosx27.0
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    set ::portlib::toolchain::metal_info_cache [dict create]
+} -body {
+    set ctx [dict create \
+        sdk_request     27 \
+        sdkroot         $::_ch_sdkdir \
+        developer_dir   /_test_coherence_no_metal/Xcode.app/Contents/Developer \
+        use_xcode       1 \
+        xcodeversion    27.0 \
+        xcodecltversion 27.0 \
+        compiler        clang \
+        needs_metal     0]
+    set findings [portlib::toolchain::check_coherence $ctx]
+    list [llength $findings] \
+        [dict exists $::portlib::toolchain::metal_info_cache \
+            /_test_coherence_no_metal/Xcode.app/Contents/Developer]
+} -cleanup {
+    file delete -force $pwd/tmp_coherence_no_metal
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    unset ::_ch_sdkdir
+} -result {0 0}
+
+
+test coherence_metal_suffix_difference_is_silent {
+    Axis C compares build TRAINS, not full build strings: Xcode build
+    27A266a and Metal build 27A300b share train "27A", differing only in
+    suffix -- must be silent. sdkroot left empty so Axis A/B (both
+    already covered above) are cleanly out of the picture.
+} -setup {
+    set ::_mi_saved_xcodeversion $::macports::xcodeversion
+    set ::macports::xcodeversion 27.0
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    set ::portlib::toolchain::xcode_build_version_cache [dict create]
+    set ::portlib::toolchain::toolchain_cache {}
+    set ::portlib::toolchain::toolchain_cache_loaded 0
+    file delete -force ${::macports::portdbpath}/cache/toolchaininfo
+    rename ::exec ::_mi_real_exec
+    proc ::exec {args} {
+        if {[lindex $args 0] eq "plutil"} {
+            return [::_mi_real_exec {*}$args]
+        }
+        if {[lsearch -exact $args -json] >= 0} {
+            return {{"buildVersion":"27A300b","status":"installed","toolchainIdentifier":"com.apple.dt.toolchain.Metal.test","toolchainSearchPath":"/_test/metal"}}
+        }
+        return "Xcode 27.0\nBuild version 27A266a"
+    }
+} -body {
+    set ctx [dict create \
+        sdk_request     {} \
+        sdkroot         {} \
+        developer_dir   /_test_coherence_metal_suffix/Xcode.app/Contents/Developer \
+        use_xcode       1 \
+        xcodeversion    27.0 \
+        xcodecltversion 27.0 \
+        compiler        clang \
+        needs_metal     1]
+    llength [portlib::toolchain::check_coherence $ctx]
+} -cleanup {
+    rename ::exec {}
+    rename ::_mi_real_exec ::exec
+    set ::macports::xcodeversion $::_mi_saved_xcodeversion
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    set ::portlib::toolchain::xcode_build_version_cache [dict create]
+    set ::portlib::toolchain::toolchain_cache {}
+    set ::portlib::toolchain::toolchain_cache_loaded 0
+    file delete -force ${::macports::portdbpath}/cache/toolchaininfo
+    unset ::_mi_saved_xcodeversion
+} -result {0}
+
+
+test coherence_metal_train_mismatch_reported {
+    Axis C's positive case: Xcode build train "27A" against Metal build
+    train "26F" must report exactly one notice finding.
+} -setup {
+    set ::_mi_saved_xcodeversion $::macports::xcodeversion
+    set ::macports::xcodeversion 27.0
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    set ::portlib::toolchain::xcode_build_version_cache [dict create]
+    set ::portlib::toolchain::toolchain_cache {}
+    set ::portlib::toolchain::toolchain_cache_loaded 0
+    file delete -force ${::macports::portdbpath}/cache/toolchaininfo
+    rename ::exec ::_mi_real_exec
+    proc ::exec {args} {
+        if {[lindex $args 0] eq "plutil"} {
+            return [::_mi_real_exec {*}$args]
+        }
+        if {[lsearch -exact $args -json] >= 0} {
+            return {{"buildVersion":"26F100","status":"installed","toolchainIdentifier":"com.apple.dt.toolchain.Metal.test","toolchainSearchPath":"/_test/metal"}}
+        }
+        return "Xcode 27.0\nBuild version 27A266a"
+    }
+} -body {
+    set ctx [dict create \
+        sdk_request     {} \
+        sdkroot         {} \
+        developer_dir   /_test_coherence_metal_train/Xcode.app/Contents/Developer \
+        use_xcode       1 \
+        xcodeversion    27.0 \
+        xcodecltversion 27.0 \
+        compiler        clang \
+        needs_metal     1]
+    set findings [portlib::toolchain::check_coherence $ctx]
+    list [llength $findings] [dict get [lindex $findings 0] axis] \
+        [dict get [lindex $findings 0] severity]
+} -cleanup {
+    rename ::exec {}
+    rename ::_mi_real_exec ::exec
+    set ::macports::xcodeversion $::_mi_saved_xcodeversion
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    set ::portlib::toolchain::xcode_build_version_cache [dict create]
+    set ::portlib::toolchain::toolchain_cache {}
+    set ::portlib::toolchain::toolchain_cache_loaded 0
+    file delete -force ${::macports::portdbpath}/cache/toolchaininfo
+    unset ::_mi_saved_xcodeversion
+} -result {1 C notice}
+
+
+test coherence_metal_not_installed_reported {
+    Axis C when needs_metal is set but the Metal toolchain component
+    isn't installed: one notice finding.
+} -setup {
+    set ::_mi_saved_xcodeversion $::macports::xcodeversion
+    set ::macports::xcodeversion 27.0
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    set ::portlib::toolchain::xcode_build_version_cache [dict create]
+    set ::portlib::toolchain::toolchain_cache {}
+    set ::portlib::toolchain::toolchain_cache_loaded 0
+    file delete -force ${::macports::portdbpath}/cache/toolchaininfo
+    rename ::exec ::_mi_real_exec
+    proc ::exec {args} {
+        if {[lindex $args 0] eq "plutil"} {
+            return [::_mi_real_exec {*}$args]
+        }
+        if {[lsearch -exact $args -json] >= 0} {
+            return {{"buildVersion":"27A266a","status":"notInstalled"}}
+        }
+        return "Xcode 27.0\nBuild version 27A266a"
+    }
+} -body {
+    set ctx [dict create \
+        sdk_request     {} \
+        sdkroot         {} \
+        developer_dir   /_test_coherence_metal_not_installed/Xcode.app/Contents/Developer \
+        use_xcode       1 \
+        xcodeversion    27.0 \
+        xcodecltversion 27.0 \
+        compiler        clang \
+        needs_metal     1]
+    set findings [portlib::toolchain::check_coherence $ctx]
+    list [llength $findings] [dict get [lindex $findings 0] axis] \
+        [dict get [lindex $findings 0] severity]
+} -cleanup {
+    rename ::exec {}
+    rename ::_mi_real_exec ::exec
+    set ::macports::xcodeversion $::_mi_saved_xcodeversion
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    set ::portlib::toolchain::xcode_build_version_cache [dict create]
+    set ::portlib::toolchain::toolchain_cache {}
+    set ::portlib::toolchain::toolchain_cache_loaded 0
+    file delete -force ${::macports::portdbpath}/cache/toolchaininfo
+    unset ::_mi_saved_xcodeversion
+} -result {1 C notice}
+
+
+test coherence_metal_unsupported_reported {
+    Axis C when needs_metal is set but the active Xcode predates the
+    separately-downloadable Metal component (< 26): one notice finding,
+    and no exec at all (metal_info's own supported gate, #94).
+} -setup {
+    set ::_mi_saved_xcodeversion $::macports::xcodeversion
+    set ::macports::xcodeversion 15.4
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    rename ::exec ::_mi_real_exec
+    proc ::exec {args} {
+        error "exec disabled for coherence_metal_unsupported_reported"
+    }
+} -body {
+    set ctx [dict create \
+        sdk_request     {} \
+        sdkroot         {} \
+        developer_dir   /_test_coherence_metal_unsupported/Xcode.app/Contents/Developer \
+        use_xcode       1 \
+        xcodeversion    15.4 \
+        xcodecltversion 15.4 \
+        compiler        clang \
+        needs_metal     1]
+    set findings [portlib::toolchain::check_coherence $ctx]
+    list [llength $findings] [dict get [lindex $findings 0] axis] \
+        [dict get [lindex $findings 0] severity]
+} -cleanup {
+    rename ::exec {}
+    rename ::_mi_real_exec ::exec
+    set ::macports::xcodeversion $::_mi_saved_xcodeversion
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    unset ::_mi_saved_xcodeversion
+} -result {1 C notice}
+
+
+test coherence_provenance_info_is_never_notice {
+    Axis D (provenance) must always be severity info, even when a real
+    mismatch is present -- it is never escalated by any policy. The SDK
+    resolves (via its own path, through the .app/Contents/Developer
+    regexp fallback -- see #93) to a different developer_dir than the
+    one in ctx. sdkroot's directory name deliberately has no version
+    digits ("MacOSX.sdk" with no readable plist), so Axis A/B stay
+    silent (empty version) and this test isolates Axis D.
+} -setup {
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    set ctx [dict create \
+        sdk_request     {} \
+        sdkroot         /Applications/XcodeA.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk \
+        developer_dir   /Applications/XcodeB.app/Contents/Developer \
+        use_xcode       1 \
+        xcodeversion    27.0 \
+        xcodecltversion 27.0 \
+        compiler        clang \
+        needs_metal     0]
+    set findings [portlib::toolchain::check_coherence $ctx]
+    list [llength $findings] [dict get [lindex $findings 0] axis] \
+        [dict get [lindex $findings 0] severity]
+} -cleanup {
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -result {1 D info}
+
+
 test supportedArchiveTypes {
     Supported archive types unit test.
     Only tests xar, zip, cpio.

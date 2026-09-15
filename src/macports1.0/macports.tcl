@@ -55,7 +55,7 @@ namespace eval macports {
         master_site_local patch_site_local archive_site_local fetch_credentials fetch_threads \
         buildfromsource revupgrade_autorun revupgrade_mode revupgrade_check_id_loadcmds \
         host_blacklist preferred_hosts sandbox_enable sandbox_network delete_la_files cxx_stdlib \
-        default_compilers pkg_post_unarchive_deletions ui_interactive] {
+        default_compilers pkg_post_unarchive_deletions ui_interactive toolchain_coherence] {
             dict set bootstrap_options $opt {}
     }
     # Config file options that are a filesystem path and should be fully resolved
@@ -79,7 +79,7 @@ namespace eval macports {
         developer_dir universal_archs build_arch os_arch os_endian os_version os_major os_minor \
         os_platform os_subplatform macos_version macos_version_major macosx_version macosx_sdk_version \
         macosx_deployment_target packagemaker_path default_compilers sandbox_enable sandbox_network \
-        delete_la_files cxx_stdlib pkg_post_unarchive_deletions {*}$user_options]
+        delete_la_files cxx_stdlib pkg_post_unarchive_deletions toolchain_coherence {*}$user_options]
 
     # Options set in the portfile interpreter but only in system_options
     variable portinterp_private_options [list clonebin_path macosx_sdk_path]
@@ -1108,6 +1108,7 @@ proc mportinit {{up_ui_options {}} {up_options {}} {up_variations {}}} {
         macports::macosx_version \
         macports::macosx_sdk_version \
         macports::macosx_deployment_target \
+        macports::toolchain_coherence \
         macports::archivefetch_pubkeys \
         macports::delete_la_files \
         macports::cxx_stdlib \
@@ -1771,6 +1772,19 @@ match macports.conf.default."
         set macosx_sdk_version $macos_version_major
     }
 
+    # Toolchain coherence check policy (issue #76): silent skips the
+    # check entirely, warn (the default) surfaces findings via
+    # ui_warn_once without failing the build, error fails the build on
+    # the first finding. Also settable per-invocation via the existing
+    # key=value override mechanism, e.g. "port install foo
+    # toolchain_coherence=error".
+    if {![info exists toolchain_coherence]} {
+        set toolchain_coherence warn
+    } elseif {$toolchain_coherence ni {silent warn error}} {
+        ui_warn "Invalid toolchain_coherence value '${toolchain_coherence}' in macports.conf; using 'warn'."
+        set toolchain_coherence warn
+    }
+
     if {![info exists revupgrade_autorun]} {
         if {$os_platform eq "darwin"} {
             set revupgrade_autorun yes
@@ -2212,6 +2226,7 @@ proc macports::worker_init {workername portpath porturl portbuildpath options va
     $workername alias macports::get_parallel_jobs macports::get_parallel_jobs
     $workername alias macports::sdk_info portlib::toolchain::sdk_info
     $workername alias macports::metal_info portlib::toolchain::metal_info
+    $workername alias macports::check_toolchain_coherence portlib::toolchain::check_coherence
     $workername alias realpath realpath
     $workername alias _mportsearchpath _mportsearchpath
     $workername alias _portnameactive _portnameactive
