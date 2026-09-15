@@ -1052,6 +1052,146 @@ namespace eval portlib {
 
     }
 
+    # Read-only accessors describing the resolved build toolchain (Xcode /
+    # CommandLineTools, SDK, Metal toolchain), for issue #76's coherence
+    # model. Everything here is additive: it never changes what get_sdkroot,
+    # configure.sdkroot, or any other existing resolution returns, it only
+    # exposes true, previously-undiscoverable facts about what was resolved
+    # (e.g. an SDK directory's real version, as opposed to its possibly
+    # misleading name -- see configure::find_close_sdk, which globs and
+    # sorts SDK directory names and has no way to know that on some hosts
+    # "MacOSX26.sdk" is really SDK version 26.5).
+    namespace eval toolchain {
+        # Single chokepoint for reading a value out of a plist (binary or
+        # XML) via plutil(1). $source is {file path} to read a plist file,
+        # or {data bytes} to read plist/JSON bytes (e.g. the output of
+        # `xcodebuild -json ...`) supplied on stdin. Returns the empty
+        # string on any failure: missing plutil, unreadable/missing file,
+        # malformed input, or a key that isn't present. Never throws.
+        proc plist_value {source key} {
+            global macports::os_platform macports::os_major
+            if {![info exists os_platform] || $os_platform ne "darwin"
+                    || ![info exists os_major] || $os_major < 19} {
+                return {}
+            }
+            lassign $source kind value
+            switch -- $kind {
+                file {
+                    if {[catch {exec plutil -extract $key raw -o - -- $value} result]} {
+                        return {}
+                    }
+                }
+                data {
+                    if {[catch {exec plutil -extract $key raw -o - -- - << $value} result]} {
+                        return {}
+                    }
+                }
+                default {
+                    return {}
+                }
+            }
+            return [string trim $result]
+        }
+
+        variable sdk_info_cache [dict create]
+
+        # Describe the SDK at $sdkroot. Returns a dict:
+        #   path            the path passed in
+        #   real_path       symlinks resolved (best effort)
+        #   version         the SDK's real version, e.g. "27.0" -- read from
+        #                   SDKSettings.plist's Version key, which is
+        #                   authoritative. A directory named "MacOSX26.sdk"
+        #                   is not necessarily version 26, or even 26.x: on
+        #                   this fork's SDK trees it has been observed to be
+        #                   a symlink whose real version is 26.5, and a
+        #                   directory named "MacOSX27.sdk" has been observed
+        #                   to be a symlink to the same real SDK as the
+        #                   bare, unversioned "MacOSX.sdk".
+        #   version_major   the major version component of "version"
+        #   canonical_name  SDKSettings.plist's CanonicalName, e.g.
+        #                   "macosx27.0"
+        #   display_name    SDKSettings.plist's DisplayName
+        #   provider        xcode, clt, or other, from where $sdkroot
+        #                   actually resolves to on disk (not from which
+        #                   tree get_sdkroot happened to search)
+        #   developer_dir   the developer dir implied by "provider", or {}
+        #   source          plist (SDKSettings.plist was read successfully),
+        #                   path (it wasn't; version was parsed from the
+        #                   directory name the way base's own SDK-matching
+        #                   code does, so this dict remains usable even
+        #                   without plutil or a readable plist), or none
+        #                   ($sdkroot was empty, e.g. the DevSDK case where
+        #                   configure.sdkroot is intentionally "")
+        #
+        # Cached by the resolved sdkroot path. Unlike configure::sdkroot_cache
+        # (keyed only on sdk_version,use_xcode), this cache cannot return a
+        # stale answer for a changed developer_dir, because the path itself
+        # is the key.
+        proc sdk_info {sdkroot} {
+            variable sdk_info_cache
+            if {$sdkroot eq ""} {
+                return [dict create path {} real_path {} version {} \
+                    version_major {} canonical_name {} display_name {} \
+                    provider {} developer_dir {} source none]
+            }
+            if {[dict exists $sdk_info_cache $sdkroot]} {
+                return [dict get $sdk_info_cache $sdkroot]
+            }
+
+            set real_path $sdkroot
+            catch {set real_path [realpath $sdkroot]}
+
+            global macports::developer_dir
+            set clt_dir /Library/Developer/CommandLineTools
+            if {[string match "${clt_dir}*" $real_path]} {
+                set provider clt
+                set provider_dir $clt_dir
+            } elseif {[info exists developer_dir] && $developer_dir ne ""
+                    && [string match "${developer_dir}*" $real_path]} {
+                set provider xcode
+                set provider_dir $developer_dir
+            } elseif {[regexp {^(.*\.app/Contents/Developer)(/|$)} $real_path -> match]} {
+                set provider xcode
+                set provider_dir $match
+            } else {
+                set provider other
+                set provider_dir {}
+            }
+
+            set plist ${sdkroot}/SDKSettings.plist
+            set version [plist_value [list file $plist] Version]
+            set canonical_name [plist_value [list file $plist] CanonicalName]
+            set display_name [plist_value [list file $plist] DisplayName]
+
+            if {$version ne ""} {
+                set source plist
+            } else {
+                set source path
+                # Fall back to parsing the version out of the directory
+                # name, the same information configure::find_close_sdk
+                # already relies on -- so this dict stays usable even when
+                # plutil is unavailable or the plist can't be read, it is
+                # just no more trustworthy than base's existing behavior in
+                # that case.
+                regexp {MacOSX([0-9]+(?:\.[0-9]+)?)} [file tail $sdkroot] -> version
+            }
+            set version_major [lindex [split $version .] 0]
+
+            set info [dict create \
+                path $sdkroot \
+                real_path $real_path \
+                version $version \
+                version_major $version_major \
+                canonical_name $canonical_name \
+                display_name $display_name \
+                provider $provider \
+                developer_dir $provider_dir \
+                source $source]
+            dict set sdk_info_cache $sdkroot $info
+            return $info
+        }
+    }
+
     namespace eval extract {
         # Map a given file name to a canonical extract method name
         proc method_for_suffix {filename} {

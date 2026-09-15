@@ -2241,6 +2241,8 @@ proc macports::worker_init {workername portpath porturl portbuildpath options va
     $workername alias portconfigure::_get_sdkroot portlib::configure::get_sdkroot
     $workername alias portconfigure::get_system_compiler_version portlib::configure::get_system_compiler_version
     $workername alias portconfigure::max_version portlib::configure::max_version
+    $workername alias portconfigure::_sdk_info portlib::toolchain::sdk_info
+    $workername alias macports::sdk_info portlib::toolchain::sdk_info
 
     $workername alias portfetch::percent_encode portlib::fetch::percent_encode
     $workername alias portfetch::assemble_url portlib::fetch::assemble_url

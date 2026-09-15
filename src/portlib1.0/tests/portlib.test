@@ -276,6 +276,156 @@ test get_sdkroot_use_xcode_falls_through_to_xcrun {
 } -result "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk"
 
 
+test sdk_info_empty_sdkroot {
+    sdk_info must degrade gracefully for an empty sdkroot -- the DevSDK
+    case (configure_get_sdkroot returns {} when the host's bundled headers
+    satisfy the request) -- returning an all-empty dict with source "none"
+    rather than throwing or probing the filesystem.
+} -body {
+    set info [portlib::toolchain::sdk_info {}]
+    list [dict get $info path] [dict get $info version] \
+        [dict get $info provider] [dict get $info source]
+} -result {{} {} {} none}
+
+
+test sdk_info_reads_real_version_not_path {
+    Regression coverage for issue #76: a directory named "MacOSX26.sdk" is
+    not necessarily version 26, or even 26.x -- on this fork's SDK trees a
+    directory of that name has been observed to be a symlink whose
+    SDKSettings.plist reports version 26.5. sdk_info must return the real
+    version read from the plist, not a version parsed from the directory
+    name, whenever the plist is readable.
+} -setup {
+    set ::_si_sdkdir $pwd/tmp_sdk_MacOSX26.sdk
+    file mkdir $::_si_sdkdir
+    set fd [open $::_si_sdkdir/SDKSettings.plist w]
+    puts $fd {<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Version</key>
+	<string>26.5</string>
+	<key>CanonicalName</key>
+	<string>macosx26.5</string>
+	<key>DisplayName</key>
+	<string>macOS 26.5</string>
+</dict>
+</plist>}
+    close $fd
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    set info [portlib::toolchain::sdk_info $::_si_sdkdir]
+    list [dict get $info version] [dict get $info version_major] \
+        [dict get $info canonical_name] [dict get $info source]
+} -cleanup {
+    file delete -force $::_si_sdkdir
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_si_sdkdir
+} -result {26.5 26 macosx26.5 plist}
+
+
+test sdk_info_falls_back_to_path_when_plist_unreadable {
+    If SDKSettings.plist cannot be read (missing plutil, permissions,
+    malformed content, etc.), sdk_info must still return a usable version
+    by parsing it out of the directory name -- the same signal
+    configure::find_close_sdk already relies on -- rather than throwing or
+    returning an unusable dict. Simulated here by disabling exec entirely,
+    which is what plist_value's plutil invocation goes through.
+} -setup {
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    rename ::exec ::_si_real_exec
+    proc ::exec {args} {
+        error "exec disabled for sdk_info_falls_back_to_path_when_plist_unreadable"
+    }
+} -body {
+    set info [portlib::toolchain::sdk_info /nonexistent/MacOSX28.sdk]
+    list [dict get $info version] [dict get $info version_major] \
+        [dict get $info canonical_name] [dict get $info source]
+} -cleanup {
+    rename ::exec {}
+    rename ::_si_real_exec ::exec
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -result {28 28 {} path}
+
+
+test sdk_info_provider_identifies_clt_vs_xcode {
+    sdk_info's provider/developer_dir fields must identify which developer
+    dir actually supplied the SDK from where the path resolves on disk --
+    provenance a Portfile or PortGroup previously had no supported way to
+    ask for (issue #76 point 7). metal_toolchain-1.0.tcl's own comments
+    describe re-deriving this by parsing configure.sdkroot as a string,
+    and record that the CLT and Xcode trees' symlink shapes point in
+    opposite directions, so a string parse can't recover it reliably;
+    sdk_info answers it directly from the resolved path instead.
+} -setup {
+    set ::_si_saved_developer_dir $::macports::developer_dir
+    set ::macports::developer_dir /_test_xcode/Xcode.app/Contents/Developer
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    rename ::exec ::_si_real_exec
+    proc ::exec {args} {
+        error "exec disabled for sdk_info_provider_identifies_clt_vs_xcode"
+    }
+} -body {
+    set clt [portlib::toolchain::sdk_info /Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk]
+    set xc [portlib::toolchain::sdk_info /_test_xcode/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.sdk]
+    set other [portlib::toolchain::sdk_info /opt/other-sdks/MacOSX27.sdk]
+    list \
+        [dict get $clt provider] [dict get $clt developer_dir] \
+        [dict get $xc provider] [dict get $xc developer_dir] \
+        [dict get $other provider] [dict get $other developer_dir]
+} -cleanup {
+    rename ::exec {}
+    rename ::_si_real_exec ::exec
+    set ::macports::developer_dir $::_si_saved_developer_dir
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_si_saved_developer_dir
+} -result {clt /Library/Developer/CommandLineTools xcode /_test_xcode/Xcode.app/Contents/Developer other {}}
+
+
+test sdk_info_cache_keyed_by_path_not_by_sdk_version_use_xcode {
+    Unlike configure::sdkroot_cache (keyed only on sdk_version,use_xcode,
+    so it cannot distinguish two different resolved paths for the same
+    request -- see issue #76's H1 hazard), sdk_info's cache is keyed on the
+    resolved path itself. Two different sdkroot paths must never collide
+    in the cache even though nothing here ever calls get_sdkroot.
+} -setup {
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    rename ::exec ::_si_real_exec
+    proc ::exec {args} {
+        error "exec disabled for sdk_info_cache_keyed_by_path_not_by_sdk_version_use_xcode"
+    }
+} -body {
+    set a [portlib::toolchain::sdk_info /path/one/MacOSX26.sdk]
+    set b [portlib::toolchain::sdk_info /path/two/MacOSX26.sdk]
+    list [dict get $a path] [dict get $b path]
+} -cleanup {
+    rename ::exec {}
+    rename ::_si_real_exec ::exec
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -result {/path/one/MacOSX26.sdk /path/two/MacOSX26.sdk}
+
+
+test plist_value_missing_key_returns_empty {
+    plist_value must return the empty string, not throw, when the key
+    doesn't exist in an otherwise-readable plist.
+} -body {
+    # Not a plist at all -- proves plutil failure degrades to {} rather
+    # than propagating an error.
+    portlib::toolchain::plist_value [list file $pwd/portlib.test] SomeKey
+} -result {}
+
+
+test plist_value_reads_json_from_data_source {
+    plist_value's "data" source form must be able to parse JSON bytes (the
+    output of `xcodebuild -json ...`, which PR2's metal_info will consume)
+    supplied on stdin, not just a plist file on disk.
+} -body {
+    set json {{"buildVersion":"27A266a","status":"installed"}}
+    list [portlib::toolchain::plist_value [list data $json] buildVersion] \
+         [portlib::toolchain::plist_value [list data $json] status]
+} -result {27A266a installed}
+
+
 test supportedArchiveTypes {
     Supported archive types unit test.
     Only tests xar, zip, cpio.
