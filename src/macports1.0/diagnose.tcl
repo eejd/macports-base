@@ -122,6 +122,7 @@ namespace eval diagnose {
         check_archs
         check_permissions
         check_xcode config_options
+        check_toolchain_coherence
         check_for_app curl
         check_for_app rsync
         check_for_app openssl
@@ -642,6 +643,64 @@ namespace eval diagnose {
                 success_fail 1
             }
         }
+    }
+
+    proc check_toolchain_coherence {} {
+
+        # Displays the resolved Xcode/SDK/Metal toolchain tuple, and
+        # validates any declarative toolchain pin (issue #76 point 2)
+        # that's set. Unlike every other check in this file, this one
+        # runs entirely in the master interpreter (no Portfile is ever
+        # opened by "port diagnose"), so it calls portlib::toolchain::*
+        # directly rather than through a worker alias, and reports the
+        # SYSTEM-level default tuple rather than a per-port one.
+        #
+        # Only a broken, explicit pin counts as a failure here: a
+        # default, unpinned configuration's diagnose result is
+        # unchanged by this check, regardless of what the tuple display
+        # shows.
+        #
+        # Args:
+        #           None
+        # Returns:
+        #           None
+
+        output "toolchain coherence"
+
+        set developer_dir ${::macports::developer_dir}
+        set xcode_build [::portlib::toolchain::xcode_build_version $developer_dir]
+        ui_msg "  Xcode: ${::macports::xcodeversion} (build $xcode_build)"
+        ui_msg "  Developer dir: $developer_dir"
+
+        # Report both candidate SDK sources rather than replicating
+        # portmain.tcl's use_xcode default heuristic out of its normal
+        # Portfile context: this is purely informational, so showing
+        # what's actually available under each is more useful than
+        # guessing which one a hypothetical port would pick.
+        foreach {label use_xcode} {Xcode 1 {Command Line Tools} 0} {
+            if {[catch {::portlib::configure::get_sdkroot \
+                    ${::macports::macosx_sdk_version} $use_xcode} sdkroot]
+                    || $sdkroot eq ""} {
+                continue
+            }
+            set sdk_info [::portlib::toolchain::sdk_info $sdkroot]
+            ui_msg "  SDK ($label): [dict get $sdk_info canonical_name] (real version [dict get $sdk_info version])"
+        }
+
+        set metal [::portlib::toolchain::metal_info $developer_dir]
+        if {[dict get $metal supported]} {
+            ui_msg "  Metal toolchain: [dict get $metal status] (build [dict get $metal build_version])"
+        }
+
+        if {[catch {::portlib::toolchain::resolve_pin} pin_result]} {
+            ui_warn "Toolchain pin: $pin_result"
+            success_fail 0
+            return
+        } elseif {$pin_result ne {}} {
+            ui_msg "  Toolchain pin: satisfied ($pin_result)"
+        }
+
+        success_fail 1
     }
 
     proc check_xcode_config {path} {
