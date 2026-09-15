@@ -158,10 +158,17 @@ test get_sdkroot_no_use_xcode_falls_through_to_xcode_sdks_dir {
     use_xcode, if the CommandLineTools search finds nothing at all,
     get_sdkroot must still fall through to the shared search block and
     find a match under Xcode's own SDKs directory -- exercising the
-    try_paths list construction and the !use_xcode-gated fallback added
-    by the fix, neither of which
+    try_paths list's else branch (which, for !use_xcode, still includes
+    ${cltpath}/SDKs, unchanged from before the fix) and the shared search
+    block itself, neither of which
     get_sdkroot_no_use_xcode_still_prefers_clt reaches (it returns from
-    the CommandLineTools-only early block before either changed line).
+    the CommandLineTools-only early block first). Does not exercise the
+    !use_xcode-gated second CLT fallback below the shared loop -- result
+    is already set by the time that block would run, since this test's
+    match is found in the shared loop's first iteration; that guard's
+    !use_xcode=0 behavior is unchanged from pre-fix and is indirectly
+    covered by get_sdkroot_use_xcode_does_not_cross_to_clt proving it
+    matters for use_xcode=1.
 } -setup {
     set ::_gsr_saved(developer_dir) $::macports::developer_dir
     set ::_gsr_saved(xcodeversion) $::macports::xcodeversion
@@ -171,7 +178,7 @@ test get_sdkroot_no_use_xcode_falls_through_to_xcode_sdks_dir {
     set ::macports::developer_dir /Applications/Xcode.app/Contents/Developer
     set ::macports::xcodeversion 16.0
     set ::macports::macos_version_major 15
-    set ::macports::macos_version 15.0
+    set ::macports::macos_version 15.5
 
     set ::portlib::configure::sdkroot_cache [dict create]
 
@@ -225,7 +232,7 @@ test get_sdkroot_use_xcode_falls_through_to_xcrun {
     set ::macports::developer_dir /Applications/Xcode.app/Contents/Developer
     set ::macports::xcodeversion 16.0
     set ::macports::macos_version_major 15
-    set ::macports::macos_version 15.0
+    set ::macports::macos_version 15.5
 
     set ::portlib::configure::sdkroot_cache [dict create]
 
