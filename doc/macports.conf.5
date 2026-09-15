@@ -481,6 +481,36 @@ T}
 .sp 1
 .RE
 .PP
+toolchain_coherence
+.RS 4
+Whether to check that the resolved SDK/compiler/Metal toolchain is a combination Apple actually shipped, and what to do about it if not\&.
+warn
+reports a finding for each port that has one, without failing the build;
+silent
+skips the check entirely;
+error
+fails the build on the first finding\&. Also settable per invocation, e\&.g\&.
+port install foo toolchain_coherence=error\&.
+.TS
+tab(:);
+lt lt
+lt lt.
+T{
+\fBSupported values:\fR
+T}:T{
+silent,
+warn,
+error
+T}
+T{
+\fBDefault:\fR
+T}:T{
+warn
+T}
+.TE
+.sp 1
+.RE
+.PP
 macosx_deployment_target
 .RS 4
 Minimum macOS version that binaries built by MacPorts should support, e\&.g\&. "15\&.0"\&. Exported to build processes as

@@ -3,6 +3,16 @@
 ###
 
 Release 2.13.0 (unreleased)
+    - Added a toolchain coherence check: for ports needing a toolchain,
+      MacPorts now warns (by default) when the resolved SDK, compiler,
+      and Metal toolchain are not a combination Apple actually shipped
+      -- e.g. an SDK newer than the active Xcode/Command Line Tools
+      generation, or (for ports that set needs_metal) a Metal toolchain
+      build that doesn't match the active Xcode's build. Controlled by
+      the new toolchain_coherence macports.conf option (silent, warn, or
+      error; default warn), also settable per invocation, e.g. "port
+      install foo toolchain_coherence=error". (#76)
+
     - Documented five macports.conf options that were already read and
       honored but missing from macports.conf.in and macports.conf(5):
       xcodeversion, macosx_sdk_version, macosx_deployment_target,
