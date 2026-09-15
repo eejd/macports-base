@@ -1498,7 +1498,18 @@ namespace eval portlib {
             # macosx_sdk_version defaults to the bare host major and
             # vercmp's own ordering (27 sorts BELOW 27.0) would otherwise
             # make every default-config port look unsatisfied.
-            if {$real_version ne ""} {
+            #
+            # An empty sdk_request is a legitimate, deliberate case (a
+            # port that clears configure.sdk_version to opt into the
+            # DevSDK path -- see _check_xcode_version's own identical
+            # "configure.sdk_version ne {}" guard) and must not be read
+            # as "request the empty SDK": configure.sdkroot's default can
+            # still resolve to a real path for sdk_version {} (get_sdkroot
+            # falls through to the bare CommandLineTools "MacOSX.sdk"),
+            # so without this guard every such port would misreport as a
+            # major mismatch against whatever that bare symlink resolves
+            # to.
+            if {$sdk_request ne "" && $real_version ne ""} {
                 set real_major [dict get $sdk version_major]
                 if {[string first . $sdk_request] < 0} {
                     if {$sdk_request ne $real_major} {
@@ -1506,7 +1517,15 @@ namespace eval portlib {
                             id "toolchain-sdk-${sdk_request}-${real_version}" \
                             axis A severity notice \
                             message "Requested macOS SDK ${sdk_request} but the resolved SDK ([dict get $sdk canonical_name], real version ${real_version}) does not match."]
-                    } elseif {$real_version ne "${sdk_request}.0"} {
+                    } elseif {$real_version ne $sdk_request && $real_version ne "${sdk_request}.0"} {
+                        # Only report drift when the real version actually
+                        # carries more precision than the request (from a
+                        # readable SDKSettings.plist). When sdk_info fell
+                        # back to parsing the directory name (source
+                        # "path", e.g. plutil unavailable), that fallback
+                        # can itself be just the bare major with no minor
+                        # at all, which would otherwise equal sdk_request
+                        # and falsely look like "drift".
                         lappend findings [dict create \
                             id "toolchain-sdk-minor-${sdk_request}-${real_version}" \
                             axis A severity info \

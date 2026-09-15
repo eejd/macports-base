@@ -972,6 +972,38 @@ test coherence_default_config_is_silent {
 } -result {0}
 
 
+test coherence_empty_sdk_request_is_silent {
+    Regression coverage flagged in independent review of PR #96: an empty
+    sdk_request is a legitimate, deliberate case (a port that clears
+    configure.sdk_version to opt into the DevSDK path -- see
+    _check_xcode_version's own identical "configure.sdk_version ne {}"
+    guard), not "request the empty SDK". configure.sdkroot's default can
+    still resolve to a real, plist-bearing path even when sdk_version is
+    "" (get_sdkroot falls through to the bare CommandLineTools
+    "MacOSX.sdk" symlink), so this must stay silent rather than reporting
+    a spurious major mismatch against whatever that symlink resolves to.
+} -setup {
+    set ::_ch_sdkdir $pwd/tmp_coherence_empty_request/MacOSX.sdk
+    _coherence_make_sdk $::_ch_sdkdir 27.0 macosx27.0
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    set ctx [dict create \
+        sdk_request     {} \
+        sdkroot         $::_ch_sdkdir \
+        developer_dir   /Applications/Xcode.app/Contents/Developer \
+        use_xcode       0 \
+        xcodeversion    27.0 \
+        xcodecltversion 27.0 \
+        compiler        clang \
+        needs_metal     0]
+    llength [portlib::toolchain::check_coherence $ctx]
+} -cleanup {
+    file delete -force $pwd/tmp_coherence_empty_request
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_ch_sdkdir
+} -result {0}
+
+
 test coherence_sdk_request_minor_drift_is_silent {
     A bare-major request satisfied by a real SDK with a non-.0 minor
     (e.g. request "26", real "26.5" -- the CLT's actual shape on this
@@ -996,6 +1028,38 @@ test coherence_sdk_request_minor_drift_is_silent {
     llength [lsearch -all -inline [lmap f $findings {dict get $f severity}] notice]
 } -cleanup {
     file delete -force $pwd/tmp_coherence_minor_drift
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_ch_sdkdir
+} -result {0}
+
+
+test coherence_sdk_path_fallback_bare_major_is_silent {
+    Regression coverage flagged in independent review of PR #96: when
+    sdk_info falls back to parsing the SDK version out of the directory
+    name (source "path", e.g. SDKSettings.plist is unreadable), that
+    fallback can itself be just the bare major with no minor at all
+    (e.g. "27" for a directory literally named "MacOSX27.sdk"). Axis A's
+    info branch must not report this as "minor drift" when it exactly
+    equals the bare-major request -- there is no drift, just missing
+    precision, and claiming "resolved to 27" for a request of "27" is
+    nonsensical.
+} -setup {
+    set ::_ch_sdkdir $pwd/tmp_coherence_path_fallback/MacOSX27.sdk
+    file mkdir $::_ch_sdkdir
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    set ctx [dict create \
+        sdk_request     27 \
+        sdkroot         $::_ch_sdkdir \
+        developer_dir   /Applications/Xcode.app/Contents/Developer \
+        use_xcode       1 \
+        xcodeversion    27.0 \
+        xcodecltversion 27.0 \
+        compiler        clang \
+        needs_metal     0]
+    llength [portlib::toolchain::check_coherence $ctx]
+} -cleanup {
+    file delete -force $pwd/tmp_coherence_path_fallback
     set ::portlib::toolchain::sdk_info_cache [dict create]
     unset ::_ch_sdkdir
 } -result {0}

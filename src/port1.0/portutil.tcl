@@ -2506,6 +2506,12 @@ proc _check_xcode_version {} {
             }
         }
     }
+    # Deliberately outside the os.subplatform macosx guard above, unlike
+    # the rest of this proc: _check_toolchain_coherence is safe to call
+    # on any platform. On non-macOS, configure.sdkroot defaults to {},
+    # so sdk_info returns an all-empty dict, every axis skips, and this
+    # returns 0 with no exec at all -- same degradation macports1.0's
+    # sdk_info/metal_info already guarantee (os_platform/os_major gate).
     return [_check_toolchain_coherence]
 }
 
