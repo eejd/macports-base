@@ -1556,6 +1556,46 @@ test get_sdkroot_pin_overrides_request {
 } -match glob -result "*/tmp_pin_get_sdkroot/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.sdk"
 
 
+test get_sdkroot_pin_cache_hit_on_second_call {
+    Regression coverage flagged in independent review of PR #97:
+    pinned_sdkroot_cache must actually be served on a second get_sdkroot
+    call under the same pin -- not silently re-run
+    find_sdk_by_canonical_name every time, which would defeat the whole
+    point of caching it (and, on a real host, repeat a filesystem glob
+    plus one exec-backed sdk_info call per invocation).
+} -setup {
+    set ::_pin_dir $pwd/tmp_pin_get_sdkroot_cache
+    _coherence_make_sdk $::_pin_dir/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.sdk 27.0 macosx27.0
+    set ::_pin_saved_developer_dir $::macports::developer_dir
+    set ::_pin_saved_pin $::macports::toolchain_pin_sdk
+    set ::macports::developer_dir $::_pin_dir
+    set ::macports::toolchain_pin_sdk macosx27.0
+    set ::portlib::configure::sdkroot_cache [dict create]
+    unset -nocomplain ::portlib::configure::pinned_sdkroot_cache
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    set first [portlib::configure::get_sdkroot 15 0]
+
+    rename ::portlib::toolchain::find_sdk_by_canonical_name ::_pin_real_find_sdk
+    proc ::portlib::toolchain::find_sdk_by_canonical_name {args} {
+        error "find_sdk_by_canonical_name invoked a second time -- pinned_sdkroot_cache was not used"
+    }
+    set second [portlib::configure::get_sdkroot 15 0]
+
+    list $first $second
+} -cleanup {
+    rename ::portlib::toolchain::find_sdk_by_canonical_name {}
+    rename ::_pin_real_find_sdk ::portlib::toolchain::find_sdk_by_canonical_name
+    file delete -force $::_pin_dir
+    set ::macports::developer_dir $::_pin_saved_developer_dir
+    set ::macports::toolchain_pin_sdk $::_pin_saved_pin
+    set ::portlib::configure::sdkroot_cache [dict create]
+    unset -nocomplain ::portlib::configure::pinned_sdkroot_cache
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_pin_dir ::_pin_saved_developer_dir ::_pin_saved_pin
+} -match glob -result "*/MacOSX27.sdk */MacOSX27.sdk"
+
+
 test get_sdkroot_pin_errors_when_not_found {
     get_sdkroot must throw a clear error -- not silently fall back to
     something else -- when toolchain_pin_sdk names a CanonicalName that
@@ -1659,6 +1699,42 @@ test resolve_pin_sdk_not_found_errors {
     array unset ::_pin_saved
     unset ::_pin_dir
 } -match glob -result "*toolchain_pin_sdk 'macosx99.0' could not be found*"
+
+
+test resolve_pin_sdk_only_resolves_against_active_developer_dir {
+    Regression coverage flagged in independent review of PR #97: the
+    documented standalone use case -- "assert the SDK is X, whatever
+    Xcode is active" -- must actually work: toolchain_pin_sdk alone
+    (toolchain_pin_developer_dir left empty) resolving successfully
+    against the currently ACTIVE developer_dir, not just erroring, and
+    the returned dict must carry sdkroot but NOT a developer_dir key
+    (since nothing pinned developer_dir itself).
+} -setup {
+    set ::_pin_saved(developer_dir) $::macports::toolchain_pin_developer_dir
+    set ::_pin_saved(sdk) $::macports::toolchain_pin_sdk
+    set ::_pin_saved(metal) $::macports::toolchain_pin_metal
+    set ::_pin_saved(active_developer_dir) $::macports::developer_dir
+    set ::_pin_dir $pwd/tmp_resolve_pin_sdk_only
+    _coherence_make_sdk $::_pin_dir/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.sdk 27.0 macosx27.0
+    set ::macports::developer_dir $::_pin_dir
+    set ::macports::toolchain_pin_developer_dir {}
+    set ::macports::toolchain_pin_sdk macosx27.0
+    set ::macports::toolchain_pin_metal {}
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    set result [portlib::toolchain::resolve_pin]
+    list [dict exists $result developer_dir] [dict exists $result sdkroot] \
+        [dict get $result sdkroot]
+} -cleanup {
+    file delete -force $::_pin_dir
+    set ::macports::developer_dir $::_pin_saved(active_developer_dir)
+    set ::macports::toolchain_pin_developer_dir $::_pin_saved(developer_dir)
+    set ::macports::toolchain_pin_sdk $::_pin_saved(sdk)
+    set ::macports::toolchain_pin_metal $::_pin_saved(metal)
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    array unset ::_pin_saved
+    unset ::_pin_dir
+} -match glob -result "0 1 */tmp_resolve_pin_sdk_only/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.sdk"
 
 
 test resolve_pin_metal_mismatch_errors {

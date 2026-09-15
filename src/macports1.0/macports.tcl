@@ -1928,9 +1928,21 @@ match macports.conf.default."
         }
     } else {
         if {$os_platform eq "darwin" && ![file isdirectory $developer_dir]} {
-            ui_warn "Your developer_dir setting in macports.conf points to a non-existing directory.\
-                Since this is known to cause problems, please correct the setting or comment it and let\
-                macports auto-discover the correct path."
+            # This can now trip for two different reasons: a bad
+            # developer_dir setting (existing behavior), or a bad
+            # toolchain_pin_developer_dir (which, when set, is what
+            # actually set $developer_dir above, before this check ever
+            # ran) -- distinguish them so the warning names the setting
+            # the user actually needs to fix, per independent review of
+            # PR #97.
+            if {$toolchain_pin_developer_dir ne ""} {
+                ui_warn "Your toolchain_pin_developer_dir setting in macports.conf ('$developer_dir')\
+                    points to a non-existing directory."
+            } else {
+                ui_warn "Your developer_dir setting in macports.conf points to a non-existing directory.\
+                    Since this is known to cause problems, please correct the setting or comment it and let\
+                    macports auto-discover the correct path."
+            }
         }
     }
 

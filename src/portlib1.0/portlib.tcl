@@ -1245,10 +1245,16 @@ namespace eval portlib {
         # (issue #76 point 2, portlib::configure::get_sdkroot's pinned
         # branch, and resolve_pin below); never called on the default,
         # unpinned path.
+        #
+        # Iteration order within a directory is not meaningful: distinct
+        # *.sdk entries can be symlink-aliases of the same real SDK (this
+        # is normal -- see #93's Context), in which case they'd report
+        # the same real CanonicalName and either would be an equally
+        # correct answer, and no ordering is otherwise implied.
         proc find_sdk_by_canonical_name {search_dirs canonical_name} {
             foreach dir $search_dirs {
-                foreach sdk [lsort -decreasing [glob -nocomplain -types {d l} \
-                        -directory $dir *.sdk]] {
+                foreach sdk [glob -nocomplain -types {d l} \
+                        -directory $dir *.sdk] {
                     if {[dict get [sdk_info $sdk] canonical_name] eq $canonical_name} {
                         return $sdk
                     }
