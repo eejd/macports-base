@@ -21,6 +21,36 @@ portdbpath          	@localstatedir_expanded@/macports
 # using xcode-select(1).
 #developer_dir       	@DEVELOPER_DIR@
 
+# Version of the Xcode command-line tools. By default, MacPorts determines
+# this using pkgutil(1). Setting this overrides only the recorded version
+# number, not which tools are actually used; it is intended for advanced
+# users who need to work around detection failures.
+#xcodeversion        	5.0
+
+# Version of the macOS SDK to build against. Defaults to the major version
+# of the running OS (e.g. "15" on macOS 15.x). This is a request: if no
+# installed SDK matches exactly, MacPorts falls back to the closest
+# available version.
+#macosx_sdk_version  	15
+
+# Minimum macOS version that built binaries should support. Defaults to
+# the major version of the running OS, as "<major>.0", on macOS 11 and
+# later (e.g. "15.0" on any macOS 15.x host).
+#macosx_deployment_target	15.0
+
+# Space-delimited list of compilers to try, in order, when a port does not
+# specify one and has no port-supplied fallback list. By default MacPorts
+# builds this list itself, based on the installed Xcode or Command Line
+# Tools version. See "man 7 portfile" for supported compiler names.
+#default_compilers   	clang llvm-gcc-4.2 gcc-4.2
+
+# C++ standard library to use with Clang on macOS. Supported values are
+# "libc++" and "libstdc++". Defaults to "libc++" on Mac OS X 10.9 and
+# later and "libstdc++" on earlier versions. Most ports requiring C++11
+# or later force "libc++" regardless of this setting, since libstdc++ is
+# not available past Xcode 4.2's SDKs.
+#cxx_stdlib          	libc++
+
 # Location of PackageMaker. Defaults to
 # "${developer_dir}/Applications/Utilities/PackageMaker.app" with Xcode
 # 4.2 and earlier and "/Applications/PackageMaker.app" with 4.3 and later.

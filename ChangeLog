@@ -3,6 +3,11 @@
 ###
 
 Release 2.13.0 (unreleased)
+    - Documented five macports.conf options that were already read and
+      honored but missing from macports.conf.in and macports.conf(5):
+      xcodeversion, macosx_sdk_version, macosx_deployment_target,
+      default_compilers, cxx_stdlib. No behavior change. (#76)
+
     - Added an opt-in shared sccache directory for Rust ports, including
       sandbox access, startup fallback, and reclaim support. (#58)
 
