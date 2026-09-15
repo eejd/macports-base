@@ -358,6 +358,34 @@ namespace eval portlib {
             # developer_dir, which a future pinned-developer_dir feature
             # (issue #76 point 2) would do routinely.
             global macports::developer_dir
+
+            # toolchain_pin_sdk (issue #76 point 2) is a hard override:
+            # when set, ignore $sdk_version/$use_xcode entirely and
+            # return the SDK whose REAL CanonicalName (not a directory
+            # name guess) matches the pin, searching under the active
+            # developer_dir first and the CommandLineTools SDKs
+            # directory second. A gated FIRST branch, so the unpinned
+            # path below is byte-for-byte what ran before this existed.
+            # Deliberately a SEPARATE, narrower path from
+            # portlib::toolchain::resolve_pin (which also validates the
+            # Metal pin, an expensive xcodebuild probe this hot path
+            # must never pay for).
+            global macports::toolchain_pin_sdk
+            if {$toolchain_pin_sdk ne ""} {
+                variable pinned_sdkroot_cache
+                if {![info exists pinned_sdkroot_cache]} {
+                    set cltpath /Library/Developer/CommandLineTools
+                    set xcode_sdks ${developer_dir}/Platforms/MacOSX.platform/Developer/SDKs
+                    set found [::portlib::toolchain::find_sdk_by_canonical_name \
+                        [list $xcode_sdks ${cltpath}/SDKs] $toolchain_pin_sdk]
+                    if {$found eq ""} {
+                        return -code error "toolchain_pin_sdk '$toolchain_pin_sdk' could not be found under developer_dir '$developer_dir' or the CommandLineTools SDKs directory"
+                    }
+                    set pinned_sdkroot_cache $found
+                }
+                return $pinned_sdkroot_cache
+            }
+
             set cache_key ${sdk_version},${use_xcode},${developer_dir}
             if {[dict exists $sdkroot_cache $cache_key]} {
                 return [dict get $sdkroot_cache $cache_key]
@@ -1209,6 +1237,26 @@ namespace eval portlib {
             return $info
         }
 
+        # Search $search_dirs (each a directory that may contain *.sdk
+        # entries) for an SDK whose REAL CanonicalName -- from sdk_info,
+        # so symlink-immune, not a directory-name guess -- matches
+        # $canonical_name. Returns the first match's full path, or {}
+        # if none found. Used only by the toolchain_pin_sdk override
+        # (issue #76 point 2, portlib::configure::get_sdkroot's pinned
+        # branch, and resolve_pin below); never called on the default,
+        # unpinned path.
+        proc find_sdk_by_canonical_name {search_dirs canonical_name} {
+            foreach dir $search_dirs {
+                foreach sdk [lsort -decreasing [glob -nocomplain -types {d l} \
+                        -directory $dir *.sdk]] {
+                    if {[dict get [sdk_info $sdk] canonical_name] eq $canonical_name} {
+                        return $sdk
+                    }
+                }
+            }
+            return {}
+        }
+
         # Disk cache for xcode_build_version and metal_info, backed by
         # macports::load_cache/save_cache under a cache file NAME OF ITS
         # OWN ("toolchaininfo"), distinct from macports::xcodeinfo. That
@@ -1614,6 +1662,66 @@ namespace eval portlib {
             }
 
             return $findings
+        }
+
+        # Validate the three toolchain_pin_* options (issue #76 point 2)
+        # together: SDK, Metal, and developer_dir existence. Returns {}
+        # immediately if none are set. Throws (return -code error) with
+        # a message identifying which pin failed and why. Deliberately
+        # separate from get_sdkroot's own, narrower pinned-SDK branch
+        # (portlib.tcl's get_sdkroot): that one is on the hot path and
+        # must never pay for the Metal probe this proc does when
+        # toolchain_pin_metal is set. Called lazily -- never from
+        # mportinit -- by port diagnose (issue #76 point 5) and callable
+        # the same way from a future overlay PortGroup via the
+        # fully-qualified macports::resolve_toolchain_pin alias.
+        #
+        # toolchain_pin_sdk and toolchain_pin_metal do NOT require
+        # toolchain_pin_developer_dir to also be set: each resolves
+        # against whatever developer_dir is currently active (which may
+        # itself be pinned, or not). "assert the Metal build is X,
+        # whatever Xcode happens to be active" is a legitimate use on
+        # its own.
+        proc resolve_pin {} {
+            global macports::toolchain_pin_developer_dir macports::toolchain_pin_sdk \
+                   macports::toolchain_pin_metal macports::developer_dir
+
+            if {$toolchain_pin_developer_dir eq "" && $toolchain_pin_sdk eq "" \
+                    && $toolchain_pin_metal eq ""} {
+                return {}
+            }
+
+            set result [dict create]
+            set pinned_dir [expr {$toolchain_pin_developer_dir ne "" \
+                ? $toolchain_pin_developer_dir : $developer_dir}]
+
+            if {$toolchain_pin_developer_dir ne ""} {
+                if {![file isdirectory $toolchain_pin_developer_dir]} {
+                    return -code error "toolchain_pin_developer_dir '$toolchain_pin_developer_dir' does not exist"
+                }
+                dict set result developer_dir $toolchain_pin_developer_dir
+            }
+
+            if {$toolchain_pin_sdk ne ""} {
+                set cltpath /Library/Developer/CommandLineTools
+                set found [find_sdk_by_canonical_name \
+                    [list ${pinned_dir}/Platforms/MacOSX.platform/Developer/SDKs \
+                          ${cltpath}/SDKs] $toolchain_pin_sdk]
+                if {$found eq ""} {
+                    return -code error "toolchain_pin_sdk '$toolchain_pin_sdk' could not be found under '$pinned_dir' or the CommandLineTools SDKs directory"
+                }
+                dict set result sdkroot $found
+            }
+
+            if {$toolchain_pin_metal ne ""} {
+                set metal [metal_info $pinned_dir]
+                if {[dict get $metal build_version] ne $toolchain_pin_metal} {
+                    return -code error "toolchain_pin_metal '$toolchain_pin_metal' does not match the Metal toolchain actually available under '$pinned_dir' (found '[dict get $metal build_version]')"
+                }
+                dict set result metal_build [dict get $metal build_version]
+            }
+
+            return $result
         }
     }
 

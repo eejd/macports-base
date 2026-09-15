@@ -1490,6 +1490,276 @@ test coherence_provenance_info_is_never_notice {
 } -result {1 D info}
 
 
+# find_sdk_by_canonical_name / get_sdkroot pin / resolve_pin tests
+# (issue #76 point 2). Use _coherence_make_sdk (defined above) for real
+# SDKSettings.plist fixtures, same as the coherence_* tests.
+
+test find_sdk_by_canonical_name_matches_real_version {
+    find_sdk_by_canonical_name must match the SDK's REAL CanonicalName
+    (from sdk_info, so symlink-immune), not guess from a directory name --
+    two sibling *.sdk directories, only one with a matching plist.
+} -setup {
+    set ::_pin_dir $pwd/tmp_pin_find_sdk
+    _coherence_make_sdk $::_pin_dir/MacOSX26.sdk 26.5 macosx26.5
+    _coherence_make_sdk $::_pin_dir/MacOSX27.sdk 27.0 macosx27.0
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    portlib::toolchain::find_sdk_by_canonical_name [list $::_pin_dir] macosx27.0
+} -cleanup {
+    file delete -force $::_pin_dir
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_pin_dir
+} -match glob -result "*/tmp_pin_find_sdk/MacOSX27.sdk"
+
+
+test find_sdk_by_canonical_name_returns_empty_when_not_found {
+    find_sdk_by_canonical_name must return {} -- not throw -- when no SDK
+    under any search dir has a matching real CanonicalName.
+} -setup {
+    set ::_pin_dir $pwd/tmp_pin_find_sdk_missing
+    _coherence_make_sdk $::_pin_dir/MacOSX26.sdk 26.5 macosx26.5
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    portlib::toolchain::find_sdk_by_canonical_name [list $::_pin_dir] macosx99.0
+} -cleanup {
+    file delete -force $::_pin_dir
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_pin_dir
+} -result {}
+
+
+test get_sdkroot_pin_overrides_request {
+    toolchain_pin_sdk is a hard override in get_sdkroot: when set, the
+    requested sdk_version/use_xcode are ignored entirely and the pinned
+    SDK's real path is returned instead.
+} -setup {
+    set ::_pin_dir $pwd/tmp_pin_get_sdkroot
+    _coherence_make_sdk $::_pin_dir/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.sdk 27.0 macosx27.0
+    set ::_pin_saved_developer_dir $::macports::developer_dir
+    set ::_pin_saved_pin $::macports::toolchain_pin_sdk
+    set ::macports::developer_dir $::_pin_dir
+    set ::macports::toolchain_pin_sdk macosx27.0
+    set ::portlib::configure::sdkroot_cache [dict create]
+    unset -nocomplain ::portlib::configure::pinned_sdkroot_cache
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    # Request an entirely unrelated version -- the pin must win anyway.
+    portlib::configure::get_sdkroot 15 0
+} -cleanup {
+    file delete -force $::_pin_dir
+    set ::macports::developer_dir $::_pin_saved_developer_dir
+    set ::macports::toolchain_pin_sdk $::_pin_saved_pin
+    set ::portlib::configure::sdkroot_cache [dict create]
+    unset -nocomplain ::portlib::configure::pinned_sdkroot_cache
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_pin_dir ::_pin_saved_developer_dir ::_pin_saved_pin
+} -match glob -result "*/tmp_pin_get_sdkroot/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.sdk"
+
+
+test get_sdkroot_pin_errors_when_not_found {
+    get_sdkroot must throw a clear error -- not silently fall back to
+    something else -- when toolchain_pin_sdk names a CanonicalName that
+    doesn't exist anywhere it looks.
+} -setup {
+    set ::_pin_dir $pwd/tmp_pin_get_sdkroot_missing
+    file mkdir $::_pin_dir/Platforms/MacOSX.platform/Developer/SDKs
+    set ::_pin_saved_developer_dir $::macports::developer_dir
+    set ::_pin_saved_pin $::macports::toolchain_pin_sdk
+    set ::macports::developer_dir $::_pin_dir
+    set ::macports::toolchain_pin_sdk macosx99.0
+    set ::portlib::configure::sdkroot_cache [dict create]
+    unset -nocomplain ::portlib::configure::pinned_sdkroot_cache
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    catch {portlib::configure::get_sdkroot 15 0} err
+    set err
+} -cleanup {
+    file delete -force $::_pin_dir
+    set ::macports::developer_dir $::_pin_saved_developer_dir
+    set ::macports::toolchain_pin_sdk $::_pin_saved_pin
+    set ::portlib::configure::sdkroot_cache [dict create]
+    unset -nocomplain ::portlib::configure::pinned_sdkroot_cache
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    unset ::_pin_dir ::_pin_saved_developer_dir ::_pin_saved_pin
+} -match glob -result "*toolchain_pin_sdk 'macosx99.0' could not be found*"
+
+
+test resolve_pin_empty_when_no_pins_set {
+    resolve_pin must return {} immediately, with no exec of any kind,
+    when all three pins are at their default (empty) value.
+} -setup {
+    set ::_pin_saved(developer_dir) $::macports::toolchain_pin_developer_dir
+    set ::_pin_saved(sdk) $::macports::toolchain_pin_sdk
+    set ::_pin_saved(metal) $::macports::toolchain_pin_metal
+    set ::macports::toolchain_pin_developer_dir {}
+    set ::macports::toolchain_pin_sdk {}
+    set ::macports::toolchain_pin_metal {}
+    rename ::exec ::_pin_real_exec
+    proc ::exec {args} {
+        error "exec disabled for resolve_pin_empty_when_no_pins_set"
+    }
+} -body {
+    portlib::toolchain::resolve_pin
+} -cleanup {
+    rename ::exec {}
+    rename ::_pin_real_exec ::exec
+    set ::macports::toolchain_pin_developer_dir $::_pin_saved(developer_dir)
+    set ::macports::toolchain_pin_sdk $::_pin_saved(sdk)
+    set ::macports::toolchain_pin_metal $::_pin_saved(metal)
+    array unset ::_pin_saved
+} -result {}
+
+
+test resolve_pin_developer_dir_missing_errors {
+    resolve_pin must throw a clear error when toolchain_pin_developer_dir
+    names a directory that doesn't exist.
+} -setup {
+    set ::_pin_saved(developer_dir) $::macports::toolchain_pin_developer_dir
+    set ::_pin_saved(sdk) $::macports::toolchain_pin_sdk
+    set ::_pin_saved(metal) $::macports::toolchain_pin_metal
+    set ::macports::toolchain_pin_developer_dir /_nonexistent_pinned_xcode/Contents/Developer
+    set ::macports::toolchain_pin_sdk {}
+    set ::macports::toolchain_pin_metal {}
+} -body {
+    catch {portlib::toolchain::resolve_pin} err
+    set err
+} -cleanup {
+    set ::macports::toolchain_pin_developer_dir $::_pin_saved(developer_dir)
+    set ::macports::toolchain_pin_sdk $::_pin_saved(sdk)
+    set ::macports::toolchain_pin_metal $::_pin_saved(metal)
+    array unset ::_pin_saved
+} -match glob -result "*toolchain_pin_developer_dir*does not exist*"
+
+
+test resolve_pin_sdk_not_found_errors {
+    resolve_pin must throw when toolchain_pin_sdk can't be found under
+    the (unpinned, currently active) developer_dir.
+} -setup {
+    set ::_pin_saved(developer_dir) $::macports::toolchain_pin_developer_dir
+    set ::_pin_saved(sdk) $::macports::toolchain_pin_sdk
+    set ::_pin_saved(metal) $::macports::toolchain_pin_metal
+    set ::_pin_saved(active_developer_dir) $::macports::developer_dir
+    set ::_pin_dir $pwd/tmp_resolve_pin_sdk_missing
+    file mkdir $::_pin_dir/Platforms/MacOSX.platform/Developer/SDKs
+    set ::macports::developer_dir $::_pin_dir
+    set ::macports::toolchain_pin_developer_dir {}
+    set ::macports::toolchain_pin_sdk macosx99.0
+    set ::macports::toolchain_pin_metal {}
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+} -body {
+    catch {portlib::toolchain::resolve_pin} err
+    set err
+} -cleanup {
+    file delete -force $::_pin_dir
+    set ::macports::developer_dir $::_pin_saved(active_developer_dir)
+    set ::macports::toolchain_pin_developer_dir $::_pin_saved(developer_dir)
+    set ::macports::toolchain_pin_sdk $::_pin_saved(sdk)
+    set ::macports::toolchain_pin_metal $::_pin_saved(metal)
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    array unset ::_pin_saved
+    unset ::_pin_dir
+} -match glob -result "*toolchain_pin_sdk 'macosx99.0' could not be found*"
+
+
+test resolve_pin_metal_mismatch_errors {
+    resolve_pin must throw when toolchain_pin_metal doesn't match the
+    Metal toolchain actually available under the active developer_dir.
+} -setup {
+    set ::_pin_saved(developer_dir) $::macports::toolchain_pin_developer_dir
+    set ::_pin_saved(sdk) $::macports::toolchain_pin_sdk
+    set ::_pin_saved(metal) $::macports::toolchain_pin_metal
+    set ::_pin_saved(xcodeversion) $::macports::xcodeversion
+    set ::macports::xcodeversion 27.0
+    set ::macports::toolchain_pin_developer_dir {}
+    set ::macports::toolchain_pin_sdk {}
+    set ::macports::toolchain_pin_metal 27B100
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    set ::portlib::toolchain::xcode_build_version_cache [dict create]
+    set ::portlib::toolchain::toolchain_cache {}
+    set ::portlib::toolchain::toolchain_cache_loaded 0
+    file delete -force ${::macports::portdbpath}/cache/toolchaininfo
+    rename ::exec ::_pin_real_exec
+    proc ::exec {args} {
+        if {[lindex $args 0] eq "plutil"} {
+            return [::_pin_real_exec {*}$args]
+        }
+        if {[lsearch -exact $args -json] >= 0} {
+            return {{"buildVersion":"27A266a","status":"installed","toolchainIdentifier":"com.apple.dt.toolchain.Metal.test","toolchainSearchPath":"/_test/metal"}}
+        }
+        return "Xcode 27.0\nBuild version 27A266a"
+    }
+} -body {
+    catch {portlib::toolchain::resolve_pin} err
+    set err
+} -cleanup {
+    rename ::exec {}
+    rename ::_pin_real_exec ::exec
+    set ::macports::toolchain_pin_developer_dir $::_pin_saved(developer_dir)
+    set ::macports::toolchain_pin_sdk $::_pin_saved(sdk)
+    set ::macports::toolchain_pin_metal $::_pin_saved(metal)
+    set ::macports::xcodeversion $::_pin_saved(xcodeversion)
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    set ::portlib::toolchain::xcode_build_version_cache [dict create]
+    set ::portlib::toolchain::toolchain_cache {}
+    set ::portlib::toolchain::toolchain_cache_loaded 0
+    file delete -force ${::macports::portdbpath}/cache/toolchaininfo
+    array unset ::_pin_saved
+} -match glob -result "*toolchain_pin_metal '27B100' does not match*found '27A266a'*"
+
+
+test resolve_pin_all_three_satisfied {
+    When all three pins are set and each individually resolvable,
+    resolve_pin must return a dict carrying all three keys.
+} -setup {
+    set ::_pin_saved(developer_dir) $::macports::toolchain_pin_developer_dir
+    set ::_pin_saved(sdk) $::macports::toolchain_pin_sdk
+    set ::_pin_saved(metal) $::macports::toolchain_pin_metal
+    set ::_pin_saved(xcodeversion) $::macports::xcodeversion
+    set ::macports::xcodeversion 27.0
+    set ::_pin_dir $pwd/tmp_resolve_pin_all_three
+    _coherence_make_sdk $::_pin_dir/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.sdk 27.0 macosx27.0
+    set ::macports::toolchain_pin_developer_dir $::_pin_dir
+    set ::macports::toolchain_pin_sdk macosx27.0
+    set ::macports::toolchain_pin_metal 27A266a
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    set ::portlib::toolchain::xcode_build_version_cache [dict create]
+    set ::portlib::toolchain::toolchain_cache {}
+    set ::portlib::toolchain::toolchain_cache_loaded 0
+    file delete -force ${::macports::portdbpath}/cache/toolchaininfo
+    rename ::exec ::_pin_real_exec
+    proc ::exec {args} {
+        if {[lindex $args 0] eq "plutil"} {
+            return [::_pin_real_exec {*}$args]
+        }
+        if {[lsearch -exact $args -json] >= 0} {
+            return {{"buildVersion":"27A266a","status":"installed","toolchainIdentifier":"com.apple.dt.toolchain.Metal.test","toolchainSearchPath":"/_test/metal"}}
+        }
+        return "Xcode 27.0\nBuild version 27A266a"
+    }
+} -body {
+    set result [portlib::toolchain::resolve_pin]
+    list [dict exists $result developer_dir] [dict exists $result sdkroot] \
+        [dict exists $result metal_build] [dict get $result metal_build]
+} -cleanup {
+    rename ::exec {}
+    rename ::_pin_real_exec ::exec
+    file delete -force $::_pin_dir
+    set ::macports::toolchain_pin_developer_dir $::_pin_saved(developer_dir)
+    set ::macports::toolchain_pin_sdk $::_pin_saved(sdk)
+    set ::macports::toolchain_pin_metal $::_pin_saved(metal)
+    set ::macports::xcodeversion $::_pin_saved(xcodeversion)
+    set ::portlib::toolchain::sdk_info_cache [dict create]
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    set ::portlib::toolchain::xcode_build_version_cache [dict create]
+    set ::portlib::toolchain::toolchain_cache {}
+    set ::portlib::toolchain::toolchain_cache_loaded 0
+    file delete -force ${::macports::portdbpath}/cache/toolchaininfo
+    array unset ::_pin_saved
+    unset ::_pin_dir
+} -result {1 1 1 27A266a}
+
+
 test supportedArchiveTypes {
     Supported archive types unit test.
     Only tests xar, zip, cpio.

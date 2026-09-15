@@ -41,6 +41,21 @@ portdbpath          	@localstatedir_expanded@/macports
 # foo toolchain_coherence=error".
 #toolchain_coherence 	warn
 
+# Force a specific, validated toolchain rather than letting each of its
+# parts resolve independently. All three default empty (opt-in). If set,
+# toolchain_pin_developer_dir always wins over the developer_dir setting
+# above. toolchain_pin_sdk takes the SDK's CanonicalName (e.g.
+# "macosx15.2", from SDKSettings.plist), not a directory name -- the
+# point is to be immune to a directory name lying about its real
+# version. toolchain_pin_metal takes a Metal toolchain build string (e.g.
+# "27A266a") and is validation-only: MacPorts cannot itself choose which
+# mounted Metal toolchain macOS uses, so this only lets "port diagnose"
+# and a future coherence check confirm the build actually available
+# matches what you expect.
+#toolchain_pin_developer_dir	/Applications/Xcode.app/Contents/Developer
+#toolchain_pin_sdk   	macosx15.2
+#toolchain_pin_metal 	27A266a
+
 # Minimum macOS version that built binaries should support. Defaults to
 # the major version of the running OS, as "<major>.0", on macOS 11 and
 # later (e.g. "15.0" on any macOS 15.x host).

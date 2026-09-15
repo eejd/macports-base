@@ -3,6 +3,12 @@
 ###
 
 Release 2.13.0 (unreleased)
+    - Added a declarative toolchain pin: toolchain_pin_developer_dir,
+      toolchain_pin_sdk, and toolchain_pin_metal macports.conf options
+      to force (and, for the Metal build, assert) a specific, validated
+      toolchain rather than letting each part resolve independently.
+      All three default empty (opt-in only); no effect unless set. (#76)
+
     - Added a toolchain coherence check: for ports needing a toolchain,
       MacPorts now warns (by default) when the resolved SDK, compiler,
       and Metal toolchain are not a combination Apple actually shipped
