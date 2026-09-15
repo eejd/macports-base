@@ -410,6 +410,16 @@ proc portconfigure::configure_get_sdkroot {sdk_version} {
     return [_get_sdkroot $sdk_version [tbool use_xcode]]
 }
 
+# Describe the SDK actually resolved into configure.sdkroot: its real
+# version (read from SDKSettings.plist, not guessed from the directory
+# name), and which developer dir provided it. See
+# portlib::toolchain::sdk_info for the return shape. Read-only; does not
+# affect configure.sdkroot or any build flag.
+proc portconfigure::sdk_info {} {
+    global configure.sdkroot
+    return [_sdk_info ${configure.sdkroot}]
+}
+
 # internal function to determine DEVELOPER_DIR according to Xcode dependency
 proc portconfigure::configure_get_developer_dir {} {
     global use_xcode developer_dir
