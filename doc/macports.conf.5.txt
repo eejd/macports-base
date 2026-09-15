@@ -156,6 +156,34 @@ universal_archs::
     *Default (10.6-10.13):*;; x86_64 i386
     *Default (10.5 and earlier):*;; i386 ppc
 
+xcodeversion::
+    Overrides the recorded version of the Xcode command-line tools, which
+    MacPorts otherwise determines using pkgutil(1). Setting this does not
+    change which tools are actually invoked; it is intended for advanced
+    users working around detection failures.
+    *Default:*;; none (determined automatically)
+
+macosx_sdk_version::
+    Version of the macOS SDK to request when building ports, e.g. "15".
+    This is a request, not a guarantee: if no installed SDK matches
+    exactly, MacPorts falls back to the closest available version.
+    *Default:*;; the major version of the running OS
+
+macosx_deployment_target::
+    Minimum macOS version that binaries built by MacPorts should support,
+    e.g. "15.0". Exported to build processes as
+    +MACOSX_DEPLOYMENT_TARGET+.
+    *Default (11 and later):*;; "<major>.0" of the running OS
+    *Default (10.15 and earlier):*;; the major version of the running OS
+
+cxx_stdlib::
+    `C++` standard library to use with Clang on macOS. Most ports
+    requiring `C++11` or later force `libc++` regardless of this setting,
+    since `libstdc++` is not available past the Xcode 4.2 SDKs.
+    *Supported values:*;; `libc++`, `libstdc++`
+    *Default (10.6 and later):*;; `libc++`
+    *Default (10.5 and earlier):*;; `libstdc++`
+
 startupitem_type::
     Set the default type of startupitems to be generated, overridable by
     Portfiles that explicitly state a startupitem.type key. If set to "default",
