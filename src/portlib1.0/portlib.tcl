@@ -1208,7 +1208,12 @@ namespace eval portlib {
         # Shape:
         #   os_major  <darwin major>                       ; invalidation
         #   xcode     <checkfile path> {mtime <m> build_version <v>}
-        #   metal     xcode_build <v> info <metal_info dict>
+        #   metal     <checkfile path> {xcode_build <v> info <metal_info dict>}
+        #             -- keyed by the SAME checkfile path as "xcode" above
+        #             (not by developer_dir directly, and not by build
+        #             version alone), so two distinct Xcode installations
+        #             are never collapsed into one cache slot even if
+        #             they happen to report the same build string.
         variable toolchain_cache {}
         variable toolchain_cache_loaded 0
 
@@ -1309,7 +1314,7 @@ namespace eval portlib {
                 catch {
                     set xcodebuild [macports::findBinary xcodebuild \
                         ${::macports::autoconf::xcodebuild_path}]
-                    set out [exec /usr/bin/env DEVELOPER_DIR=${developer_dir} \
+                    set out [exec -ignorestderr -- /usr/bin/env DEVELOPER_DIR=${developer_dir} \
                         $xcodebuild -version 2> /dev/null]
                     regexp {Build version (\S+)} $out -> result
                 }
@@ -1375,20 +1380,42 @@ namespace eval portlib {
                 toolchain_search_path {} asset_path {} source none]
 
             global macports::os_platform macports::xcodeversion
-            if {![info exists os_platform] || $os_platform ne "darwin"
-                    || ![info exists xcodeversion] || $xcodeversion eq "none"
-                    || [catch {vercmp $xcodeversion 26} cmp] || $cmp < 0} {
+            if {![info exists os_platform] || $os_platform ne "darwin"} {
+                dict set metal_info_cache $developer_dir $unsupported
+                return $unsupported
+            }
+            # Read $xcodeversion directly rather than gating on
+            # [info exists xcodeversion] first: xcodeversion is set up
+            # with a deferred READ trace (macports::setxcodeinfo), and
+            # in Tcl "info exists" does not count as a read for trace
+            # purposes -- so if metal_info happened to be the first code
+            # to ever touch xcodeversion (e.g. a PortGroup calling the
+            # fully-qualified macports::metal_info alias before anything
+            # else reads it), an [info exists] gate here would see an
+            # still-unset variable and report "unsupported" even on a
+            # host where Xcode >= 26 is very much installed. Reading the
+            # value directly, inside a catch, lets the trace fire (and
+            # still degrades safely if it can't).
+            if {[catch {expr {$xcodeversion eq "none" ? -1 : [vercmp $xcodeversion 26]}} cmp]
+                    || $cmp < 0} {
                 dict set metal_info_cache $developer_dir $unsupported
                 return $unsupported
             }
 
             set xcode_build [xcode_build_version $developer_dir]
+            # The disk cache's "metal" entry is keyed by the SAME
+            # checkfile path xcode_build_version's own "xcode" entry
+            # uses (see xcode_checkfile), not by developer_dir directly,
+            # so two distinct Xcode installations are never collapsed
+            # into one slot even if -- purely coincidentally -- they
+            # report the same build string.
+            set checkfile [xcode_checkfile $developer_dir]
 
             set cache [load_toolchain_cache]
-            if {$xcode_build ne "" && [dict exists $cache metal xcode_build]
-                    && [dict get $cache metal xcode_build] eq $xcode_build
-                    && [dict exists $cache metal info]} {
-                set cached [dict get $cache metal info]
+            if {$xcode_build ne "" && [dict exists $cache metal $checkfile xcode_build]
+                    && [dict get $cache metal $checkfile xcode_build] eq $xcode_build
+                    && [dict exists $cache metal $checkfile info]} {
+                set cached [dict get $cache metal $checkfile info]
                 if {[dict get $cached status] eq "installed"
                         && [dict get $cached toolchain_search_path] ne ""
                         && [file isdirectory [dict get $cached toolchain_search_path]]} {
@@ -1405,7 +1432,7 @@ namespace eval portlib {
             catch {
                 set xcodebuild [macports::findBinary xcodebuild \
                     ${::macports::autoconf::xcodebuild_path}]
-                set json [exec /usr/bin/env DEVELOPER_DIR=${developer_dir} \
+                set json [exec -ignorestderr -- /usr/bin/env DEVELOPER_DIR=${developer_dir} \
                     $xcodebuild -json -showComponent MetalToolchain 2> /dev/null]
                 set status [plist_value [list data $json] status]
                 if {$status ne ""} {
@@ -1425,8 +1452,8 @@ namespace eval portlib {
 
             if {[dict get $result status] eq "installed"} {
                 variable toolchain_cache
-                dict set toolchain_cache metal xcode_build $xcode_build
-                dict set toolchain_cache metal info $result
+                dict set toolchain_cache metal $checkfile xcode_build $xcode_build
+                dict set toolchain_cache metal $checkfile info $result
                 save_toolchain_cache
             }
 

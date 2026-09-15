@@ -583,6 +583,45 @@ test metal_info_unsupported_on_old_xcode {
 } -result {0 {} none}
 
 
+test metal_info_forces_deferred_xcodeversion_read {
+    macports::xcodeversion is set up with a deferred READ trace
+    (macports::setxcodeinfo), and in Tcl "info exists" does NOT count as
+    a read for trace purposes. metal_info's Xcode-version gate must
+    therefore actually read $xcodeversion (forcing any such trace to
+    fire), not short-circuit on [info exists xcodeversion] first -- or
+    it would report "unsupported" on a real Xcode >= 26 host simply
+    because nothing had touched xcodeversion yet. Simulated with a
+    private trace standing in for macports::setxcodeinfo's real one,
+    since that one may have already fired (and removed itself) earlier
+    in this test run.
+} -setup {
+    set ::_mi_saved_xcodeversion $::macports::xcodeversion
+    unset ::macports::xcodeversion
+    trace add variable ::macports::xcodeversion read ::_mi_deferred_load
+    proc ::_mi_deferred_load {name1 name2 op} {
+        set ::macports::xcodeversion 27.0
+        trace remove variable ::macports::xcodeversion read ::_mi_deferred_load
+    }
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    rename ::exec ::_mi_real_exec
+    proc ::exec {args} {
+        error "exec disabled for metal_info_forces_deferred_xcodeversion_read"
+    }
+} -body {
+    set info [portlib::toolchain::metal_info /_test_xcode/Xcode.app/Contents/Developer]
+    list [dict get $info supported] [info exists ::macports::xcodeversion] \
+        $::macports::xcodeversion
+} -cleanup {
+    rename ::exec {}
+    rename ::_mi_real_exec ::exec
+    trace remove variable ::macports::xcodeversion read ::_mi_deferred_load
+    catch {rename ::_mi_deferred_load {}}
+    set ::macports::xcodeversion $::_mi_saved_xcodeversion
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    unset ::_mi_saved_xcodeversion
+} -result {1 1 27.0}
+
+
 test metal_info_never_throws_on_probe_failure {
     metal_info must return a well-formed dict -- not an exception -- when
     the xcodebuild probe itself fails (e.g. xcodebuild missing, or a
@@ -683,9 +722,10 @@ test metal_info_not_installed_is_not_disk_cached {
         return "Xcode 27.0\nBuild version 27A266a"
     }
 } -body {
-    portlib::toolchain::metal_info /_test_xcode/Xcode.app/Contents/Developer
+    set info [portlib::toolchain::metal_info /_test_xcode/Xcode.app/Contents/Developer]
     set cache [macports::load_cache toolchaininfo]
-    dict exists $cache metal
+    list [dict get $info supported] [dict get $info status] \
+         [dict get $info source] [dict exists $cache metal]
 } -cleanup {
     rename ::exec {}
     rename ::_mi_real_exec ::exec
@@ -696,7 +736,7 @@ test metal_info_not_installed_is_not_disk_cached {
     set ::portlib::toolchain::toolchain_cache_loaded 0
     file delete -force ${::macports::portdbpath}/cache/toolchaininfo
     unset ::_mi_saved_xcodeversion
-} -result {0}
+} -result {1 notInstalled xcodebuild 0}
 
 
 test metal_info_disk_cache_roundtrip {
@@ -816,6 +856,67 @@ test metal_info_disk_cache_rejected_when_search_path_gone {
     file delete -force $::_mi_search_path
     unset ::_mi_saved_xcodeversion ::_mi_search_path ::_mi_json_calls
 } -result {installed xcodebuild 2}
+
+
+test metal_info_disk_cache_rejected_when_xcode_build_changed {
+    A disk cache hit must also be rejected when the Xcode build itself
+    has changed since the entry was written (e.g. an Xcode update
+    between two "port" runs, with the old Metal toolchain's search path
+    happening to still be present) -- the cached xcode_build must be
+    compared against a freshly-read one every time, not assumed still
+    current just because the search path validation above passed.
+} -setup {
+    set ::_mi_saved_xcodeversion $::macports::xcodeversion
+    set ::macports::xcodeversion 27.0
+    set ::_mi_search_path $pwd/tmp_metal_toolchain_build_changed
+    file mkdir $::_mi_search_path
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    set ::portlib::toolchain::xcode_build_version_cache [dict create]
+    set ::portlib::toolchain::toolchain_cache {}
+    set ::portlib::toolchain::toolchain_cache_loaded 0
+    file delete -force ${::macports::portdbpath}/cache/toolchaininfo
+    rename ::exec ::_mi_real_exec
+    set ::_mi_json_calls 0
+    set ::_mi_build 27A266a
+    proc ::exec {args} {
+        if {[lindex $args 0] eq "plutil"} {
+            return [::_mi_real_exec {*}$args]
+        }
+        if {[lsearch -exact $args -json] >= 0} {
+            incr ::_mi_json_calls
+            return [format {{"assetPath":"/a","buildVersion":"%s","status":"installed","toolchainIdentifier":"com.apple.dt.toolchain.Metal.test","toolchainSearchPath":"%s"}} \
+                $::_mi_build $::_mi_search_path]
+        }
+        return "Xcode 27.0\nBuild version $::_mi_build"
+    }
+} -body {
+    set first [portlib::toolchain::metal_info /_test_xcode/Xcode.app/Contents/Developer]
+
+    # Simulate an Xcode update between two "port" runs -- the developer
+    # dir's build (and its paired Metal build) is now different, without
+    # anything having evicted the still-present search path.
+    set ::_mi_build 27B100
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    set ::portlib::toolchain::xcode_build_version_cache [dict create]
+    set ::portlib::toolchain::toolchain_cache {}
+    set ::portlib::toolchain::toolchain_cache_loaded 0
+
+    set second [portlib::toolchain::metal_info /_test_xcode/Xcode.app/Contents/Developer]
+    list [dict get $first build_version] [dict get $first source] \
+         [dict get $second build_version] [dict get $second source] \
+         $::_mi_json_calls
+} -cleanup {
+    rename ::exec {}
+    rename ::_mi_real_exec ::exec
+    set ::macports::xcodeversion $::_mi_saved_xcodeversion
+    set ::portlib::toolchain::metal_info_cache [dict create]
+    set ::portlib::toolchain::xcode_build_version_cache [dict create]
+    set ::portlib::toolchain::toolchain_cache {}
+    set ::portlib::toolchain::toolchain_cache_loaded 0
+    file delete -force ${::macports::portdbpath}/cache/toolchaininfo
+    file delete -force $::_mi_search_path
+    unset ::_mi_saved_xcodeversion ::_mi_search_path ::_mi_json_calls ::_mi_build
+} -result {27A266a xcodebuild 27B100 xcodebuild 2}
 
 
 test supportedArchiveTypes {
