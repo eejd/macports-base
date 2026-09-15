@@ -346,7 +346,19 @@ namespace eval portlib {
         # Find SDK location matching the given parameters
         proc get_sdkroot {sdk_version use_xcode} {
             variable sdkroot_cache
-            set cache_key ${sdk_version},${use_xcode}
+            # developer_dir is part of the cache key, not just
+            # sdk_version/use_xcode: the result of this proc depends on
+            # it too (both the use_xcode and the !use_xcode branches
+            # below read it), so two calls with the same sdk_version and
+            # use_xcode but a different developer_dir must not collide
+            # in the cache (issue #76's H1 hazard). Within one "port"
+            # process developer_dir is normally constant, so this has
+            # been latent rather than active -- but it becomes live for
+            # a process that resolves get_sdkroot under more than one
+            # developer_dir, which a future pinned-developer_dir feature
+            # (issue #76 point 2) would do routinely.
+            global macports::developer_dir
+            set cache_key ${sdk_version},${use_xcode},${developer_dir}
             if {[dict exists $sdkroot_cache $cache_key]} {
                 return [dict get $sdkroot_cache $cache_key]
             }
@@ -395,7 +407,7 @@ namespace eval portlib {
                 }
             }
 
-            global macports::xcodeversion macports::developer_dir
+            global macports::xcodeversion
             if {[vercmp $xcodeversion < 4.3]} {
                 set sdks_dir ${developer_dir}/SDKs
             } else {
