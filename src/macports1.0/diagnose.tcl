@@ -677,18 +677,29 @@ namespace eval diagnose {
         # Portfile context: this is purely informational, so showing
         # what's actually available under each is more useful than
         # guessing which one a hypothetical port would pick.
+        # Both candidate SDK sources, plus the Metal probe below, can in
+        # principle be the same real SDK/toolchain shown twice under
+        # different labels (e.g. a host with only Xcode installed, where
+        # the CLT candidate falls through to the same real SDK) -- that
+        # duplication is correct, expected output, not a bug: it's
+        # exactly the fact that "Xcode" and "Command Line Tools" resolve
+        # to the same place worth being able to see.
         foreach {label use_xcode} {Xcode 1 {Command Line Tools} 0} {
-            if {[catch {::portlib::configure::get_sdkroot \
-                    ${::macports::macosx_sdk_version} $use_xcode} sdkroot]
-                    || $sdkroot eq ""} {
+            if {[catch {
+                set sdkroot [::portlib::configure::get_sdkroot \
+                    ${::macports::macosx_sdk_version} $use_xcode]
+                if {$sdkroot eq ""} {
+                    error "no sdkroot"
+                }
+                set sdk_info [::portlib::toolchain::sdk_info $sdkroot]
+                ui_msg "  SDK ($label): [dict get $sdk_info canonical_name] (real version [dict get $sdk_info version])"
+            }]} {
                 continue
             }
-            set sdk_info [::portlib::toolchain::sdk_info $sdkroot]
-            ui_msg "  SDK ($label): [dict get $sdk_info canonical_name] (real version [dict get $sdk_info version])"
         }
 
         set metal [::portlib::toolchain::metal_info $developer_dir]
-        if {[dict get $metal supported]} {
+        if {[dict get $metal supported] && [dict get $metal status] ne ""} {
             ui_msg "  Metal toolchain: [dict get $metal status] (build [dict get $metal build_version])"
         }
 
@@ -697,7 +708,19 @@ namespace eval diagnose {
             success_fail 0
             return
         } elseif {$pin_result ne {}} {
-            ui_msg "  Toolchain pin: satisfied ($pin_result)"
+            # Show what the user actually configured, not the resolved
+            # values resolve_pin's dict carries (e.g. a full sdkroot
+            # path instead of the CanonicalName they wrote) -- those are
+            # already shown above in the SDK/Metal lines.
+            set pinned {}
+            foreach {opt label} {toolchain_pin_developer_dir {developer dir} \
+                    toolchain_pin_sdk sdk toolchain_pin_metal metal} {
+                set value [set ::macports::$opt]
+                if {$value ne ""} {
+                    lappend pinned "$label=$value"
+                }
+            }
+            ui_msg "  Toolchain pin: satisfied ([join $pinned {, }])"
         }
 
         success_fail 1
