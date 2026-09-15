@@ -7697,10 +7697,15 @@ proc macports::get_compatible_xcode_versions {} {
             set ok 26.0
             set rec 26.0
         }
+        27 {
+            set min 27.0
+            set ok 27.0
+            set rec 27.0
+        }
         default {
-            set min 26.0
-            set ok 26.0
-            set rec 26.0
+            set min 27.0
+            set ok 27.0
+            set rec 27.0
         }
     }
     return [list $min $ok $rec]
