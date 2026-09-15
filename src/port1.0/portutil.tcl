@@ -2449,12 +2449,32 @@ proc _check_xcode_version {} {
 
             if {${os.major} >= 18} {
                 global configure.sdk_version macosx_sdk_version
+                # Whether the requested SDK is actually satisfied, compared
+                # at the granularity the request specified (issue #76): a
+                # directory match on the name (the old check, via
+                # string match MacOSX${configure.sdk_version}*.sdk) can be
+                # wrong in both directions -- a directory literally named
+                # "MacOSXNN.sdk" is not necessarily version NN or even
+                # NN.x (it can be a symlink to a different real SDK), so
+                # the old check both missed real substitutions and warned
+                # on some that were actually fine. Compares against the
+                # real version from SDKSettings.plist instead.
+                set _toolchain_sdk_real [macports::sdk_info \
+                    [portconfigure::configure_get_sdkroot ${configure.sdk_version}]]
+                set _toolchain_sdk_real_version [dict get $_toolchain_sdk_real version]
+                if {[string first . ${configure.sdk_version}] < 0} {
+                    # bare major request: any matching minor satisfies it
+                    set _toolchain_sdk_satisfied [expr {${configure.sdk_version} \
+                        eq [dict get $_toolchain_sdk_real version_major]}]
+                } else {
+                    set _toolchain_sdk_satisfied [expr {$_toolchain_sdk_real_version ne "" \
+                        && ![vercmp $_toolchain_sdk_real_version != ${configure.sdk_version}]}]
+                }
                 if {$xcodecltversion eq "none" && [file executable [file join $cltpath usr bin make]]} {
                     ui_warn "The Xcode Command Line Tools package appears to be installed, but its receipt appears to be missing."
                     ui_warn "The Command Line Tools may be outdated, which can cause problems."
                     ui_warn "Please see: <https://trac.macports.org/wiki/ProblemHotlist#reinstall-clt>"
-                } elseif {${configure.sdk_version} ne "" && ![string match MacOSX${configure.sdk_version}*.sdk \
-                        [file tail [portconfigure::configure_get_sdkroot ${configure.sdk_version}]]]} {
+                } elseif {${configure.sdk_version} ne "" && !$_toolchain_sdk_satisfied} {
                     if {${configure.sdk_version} eq ${macosx_sdk_version}} {
                         ui_warn "The macOS ${configure.sdk_version} SDK does not appear to be installed. Ports may not build correctly."
                         ui_warn "You can install it as part of the Xcode Command Line Tools package by running `xcode-select --install'."
@@ -2486,7 +2506,53 @@ proc _check_xcode_version {} {
             }
         }
     }
-    return 0
+    return [_check_toolchain_coherence]
+}
+
+# Check whether the resolved SDK/compiler/Metal toolchain is a
+# combination Apple actually shipped (issue #76). Called from the end of
+# _check_xcode_version, so it runs in exactly the same gated context: only
+# for targets that need a toolchain (_target_needs_toolchain), after
+# check_variants, before check_supported_archs/eval_targets. An unchanged
+# config produces a byte-identical transcript to before this proc existed,
+# because toolchain_coherence defaults to "warn", and "warn" only ever adds
+# NEW ui_warn_once output for tuples that were never checked before -- it
+# does not alter any existing warning already in this file.
+proc _check_toolchain_coherence {} {
+    global configure.sdk_version configure.sdkroot configure.developer_dir \
+           configure.compiler use_xcode xcodeversion xcodecltversion \
+           needs_metal toolchain_coherence
+
+    if {${toolchain_coherence} eq "silent"} {
+        return 0
+    }
+
+    set ctx [dict create \
+        sdk_request     ${configure.sdk_version} \
+        sdkroot         ${configure.sdkroot} \
+        developer_dir   ${configure.developer_dir} \
+        use_xcode       [tbool use_xcode] \
+        xcodeversion    $xcodeversion \
+        xcodecltversion $xcodecltversion \
+        compiler        ${configure.compiler} \
+        needs_metal     [tbool needs_metal]]
+
+    set had_error 0
+    foreach finding [macports::check_toolchain_coherence $ctx] {
+        if {[dict get $finding severity] ne "notice"} {
+            # info-severity findings (SDK provenance) are never
+            # surfaced here -- reserved for a future `port diagnose`.
+            continue
+        }
+        set msg [dict get $finding message]
+        if {${toolchain_coherence} eq "error"} {
+            ui_error $msg
+            set had_error 1
+        } else {
+            ui_warn_once [dict get $finding id] $msg
+        }
+    }
+    return $had_error
 }
 
 # Get a head start on things that will need to be done when this port

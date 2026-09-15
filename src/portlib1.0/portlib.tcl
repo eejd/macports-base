@@ -1460,6 +1460,130 @@ namespace eval portlib {
             dict set metal_info_cache $developer_dir $result
             return $result
         }
+
+        # Check whether the resolved SDK/compiler/Metal tuple described
+        # by $ctx is one Apple actually shipped (issue #76). Pure: reads
+        # only the memoized accessors above (sdk_info, metal_info,
+        # xcode_build_version -- themselves the only I/O in this
+        # namespace), never touches exec or ui_* directly, and never
+        # reads a Portfile-scope global itself -- the caller builds $ctx
+        # from already-resolved worker globals, so this proc is callable
+        # identically from a unit test or a future overlay PortGroup.
+        #
+        # $ctx keys: sdk_request sdkroot developer_dir use_xcode
+        # xcodeversion xcodecltversion compiler needs_metal
+        #
+        # Returns a list of finding dicts {id axis severity message}.
+        # severity is one of:
+        #   notice  a real coherence concern; the caller decides whether
+        #           to surface it (and how) based on the toolchain_coherence
+        #           policy
+        #   info    provenance-only; always informational, never
+        #           escalated by any policy (reserved for a future
+        #           `port diagnose` display)
+        #
+        # id is keyed on the tuple that produced the finding, never on
+        # the subport, so callers using ui_warn_once (which dedups per
+        # base process) warn once per distinct tuple rather than once per
+        # dependency in a multi-port build.
+        proc check_coherence {ctx} {
+            set findings {}
+            set sdk [sdk_info [dict get $ctx sdkroot]]
+            set sdk_request [dict get $ctx sdk_request]
+            set real_version [dict get $sdk version]
+
+            # Axis A -- SDK request satisfiability, compared at the
+            # granularity the request specified: a bare major (no ".") is
+            # a range ("any 27.x"), not the point 27.0, because
+            # macosx_sdk_version defaults to the bare host major and
+            # vercmp's own ordering (27 sorts BELOW 27.0) would otherwise
+            # make every default-config port look unsatisfied.
+            if {$real_version ne ""} {
+                set real_major [dict get $sdk version_major]
+                if {[string first . $sdk_request] < 0} {
+                    if {$sdk_request ne $real_major} {
+                        lappend findings [dict create \
+                            id "toolchain-sdk-${sdk_request}-${real_version}" \
+                            axis A severity notice \
+                            message "Requested macOS SDK ${sdk_request} but the resolved SDK ([dict get $sdk canonical_name], real version ${real_version}) does not match."]
+                    } elseif {$real_version ne "${sdk_request}.0"} {
+                        lappend findings [dict create \
+                            id "toolchain-sdk-minor-${sdk_request}-${real_version}" \
+                            axis A severity info \
+                            message "Requested macOS SDK ${sdk_request} (any ${sdk_request}.x) resolved to ${real_version}."]
+                    }
+                } elseif {[vercmp $real_version != $sdk_request]} {
+                    lappend findings [dict create \
+                        id "toolchain-sdk-${sdk_request}-${real_version}" \
+                        axis A severity notice \
+                        message "Requested macOS SDK ${sdk_request} but the resolved SDK ([dict get $sdk canonical_name], real version ${real_version}) does not match."]
+                }
+            }
+
+            # Axis B -- SDK vs. compiler generation, one-directional:
+            # only warn when the SDK is NEWER than the Apple toolchain
+            # generation (an older SDK than the toolchain is completely
+            # normal and silent at any distance). Compiler generation is
+            # the Xcode/CLT version, not the compiler binary's own
+            # version -- those are different axes. Skipped for
+            # macports-provided compilers, whose numbering has no
+            # relationship to Xcode/CLT generations at all.
+            set generation [expr {[dict get $ctx use_xcode] \
+                ? [dict get $ctx xcodeversion] : [dict get $ctx xcodecltversion]}]
+            if {$real_version ne "" && $generation ni {{} none}
+                    && ![catch {::portlib::configure::compiler_is_port [dict get $ctx compiler]} is_port]
+                    && !$is_port} {
+                set gen_major [lindex [split $generation .] 0]
+                set sdk_major [dict get $sdk version_major]
+                if {[string is integer -strict $sdk_major] && [string is integer -strict $gen_major]
+                        && $sdk_major > $gen_major} {
+                    lappend findings [dict create \
+                        id "toolchain-sdk-ahead-of-toolchain-${sdk_major}-${gen_major}" \
+                        axis B severity notice \
+                        message "The resolved SDK (${real_version}) is newer than the active Xcode/Command Line Tools generation (${generation}); headers or APIs it declares may not be usable."]
+                }
+            }
+
+            # Axis C -- Metal <-> Xcode build-train equality. Opt-in
+            # only via needs_metal; never inferred by base, and no exec
+            # of any kind happens here when a port hasn't asked.
+            if {[dict get $ctx needs_metal]} {
+                set developer_dir [dict get $ctx developer_dir]
+                set metal [metal_info $developer_dir]
+                if {![dict get $metal supported]} {
+                    lappend findings [dict create \
+                        id "toolchain-metal-unsupported" axis C severity notice \
+                        message "This port requires the Metal toolchain, which the active Xcode does not support as a separate component (Xcode < 26)."]
+                } elseif {[dict get $metal status] ne "installed"} {
+                    lappend findings [dict create \
+                        id "toolchain-metal-not-installed-[dict get $metal status]" \
+                        axis C severity notice \
+                        message "This port requires the Metal toolchain, but it is not installed (status: [dict get $metal status])."]
+                } else {
+                    set xcode_train [build_train [xcode_build_version $developer_dir]]
+                    set metal_train [dict get $metal build_train]
+                    if {$xcode_train ne "" && $metal_train ne "" && $xcode_train ne $metal_train} {
+                        lappend findings [dict create \
+                            id "toolchain-metal-train-mismatch-${xcode_train}-${metal_train}" \
+                            axis C severity notice \
+                            message "The Metal toolchain (build [dict get $metal build_version]) does not match the active Xcode's build train (${xcode_train} vs ${metal_train})."]
+                    }
+                }
+            }
+
+            # Axis D -- provenance. Info only, never escalated by any
+            # policy: this is a fact worth recording (for a future `port
+            # diagnose`), not a problem in itself.
+            if {[dict get $sdk provider] ne "" && [dict get $sdk developer_dir] ne ""
+                    && [dict get $sdk developer_dir] ne [dict get $ctx developer_dir]} {
+                lappend findings [dict create \
+                    id "toolchain-sdk-provenance-[dict get $sdk provider]" \
+                    axis D severity info \
+                    message "The resolved SDK comes from [dict get $sdk provider] at [dict get $sdk developer_dir], not the active developer dir ([dict get $ctx developer_dir])."]
+            }
+
+            return $findings
+        }
     }
 
     namespace eval extract {

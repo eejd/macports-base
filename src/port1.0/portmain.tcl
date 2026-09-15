@@ -60,7 +60,7 @@ options prefix name version revision epoch categories maintainers \
         compiler.limit_flags \
         compiler.support_environment_paths \
         compiler.support_environment_sdkroot \
-        add_users use_xcode source_date_epoch
+        add_users use_xcode needs_metal source_date_epoch
 
 proc portmain::check_option_integer {option action args} {
     if {$action eq "set" && ![string is integer -strict $args]} {
@@ -165,6 +165,13 @@ default worksymlink {[file normalize [file join $portpath work]]}
 default distpath {[file normalize [file join $portdbpath distfiles ${dist_subdir}]]}
 
 default use_xcode {[expr {${build.type} eq "xcode" || !([file exists /usr/lib/libxcselect.dylib] || ${os.major} >= 20) || ![file executable /Library/Developer/CommandLineTools/usr/bin/make]}]}
+
+# Whether this port needs the (macOS 26+) separately-downloadable Metal
+# toolchain component. Opt-in only, never inferred by base: a port or
+# PortGroup that actually invokes the Metal compiler sets this to enable
+# the toolchain coherence check's Metal<->Xcode build-train comparison
+# (issue #76, Axis C). See portutil::_check_toolchain_coherence.
+default needs_metal no
 
 default source_date_epoch {[portmain::get_source_date_epoch]}
 
