@@ -276,6 +276,59 @@ test get_sdkroot_use_xcode_falls_through_to_xcrun {
 } -result "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk"
 
 
+test get_sdkroot_cache_key_includes_developer_dir {
+    Regression coverage for issue #76's H1 hazard: sdkroot_cache used to be
+    keyed only on sdk_version,use_xcode, omitting developer_dir -- even
+    though the result depends on it too (both the use_xcode and
+    !use_xcode branches read it). Two calls with the same sdk_version and
+    use_xcode but a DIFFERENT developer_dir must resolve independently,
+    not return a stale answer cached under the first developer_dir. Within
+    one "port" process developer_dir is normally constant, so this was
+    latent rather than active; it becomes live for anything that resolves
+    get_sdkroot under more than one developer_dir in-process, which a
+    future pinned-developer_dir feature (issue #76 point 2) would do
+    routinely.
+} -setup {
+    set ::_gsr_saved(developer_dir) $::macports::developer_dir
+    set ::_gsr_saved(xcodeversion) $::macports::xcodeversion
+    set ::_gsr_saved(macos_version_major) $::macports::macos_version_major
+    set ::_gsr_saved(macos_version) $::macports::macos_version
+
+    set ::macports::xcodeversion 16.0
+    set ::macports::macos_version_major 15
+    set ::macports::macos_version 15.0
+
+    set ::portlib::configure::sdkroot_cache [dict create]
+
+    # Two distinct developer_dirs, each with its own matching SDK path --
+    # only the path under the CURRENTLY active developer_dir "exists".
+    rename ::portlib::configure::file_exists ::_gsr_real_file_exists
+    proc ::portlib::configure::file_exists {path} {
+        return [expr {$path eq "${::macports::developer_dir}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.sdk"}]
+    }
+} -body {
+    set ::macports::developer_dir /Applications/XcodeA.app/Contents/Developer
+    set a [portlib::configure::get_sdkroot 15 1]
+
+    # Same sdk_version and use_xcode, but a different developer_dir, with
+    # the cache deliberately NOT reset in between -- this is exactly the
+    # scenario the missing key component would get wrong.
+    set ::macports::developer_dir /Applications/XcodeB.app/Contents/Developer
+    set b [portlib::configure::get_sdkroot 15 1]
+
+    list $a $b
+} -cleanup {
+    rename ::portlib::configure::file_exists {}
+    rename ::_gsr_real_file_exists ::portlib::configure::file_exists
+    set ::macports::developer_dir $::_gsr_saved(developer_dir)
+    set ::macports::xcodeversion $::_gsr_saved(xcodeversion)
+    set ::macports::macos_version_major $::_gsr_saved(macos_version_major)
+    set ::macports::macos_version $::_gsr_saved(macos_version)
+    set ::portlib::configure::sdkroot_cache [dict create]
+    array unset ::_gsr_saved
+} -result {/Applications/XcodeA.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.sdk /Applications/XcodeB.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.sdk}
+
+
 test sdk_info_empty_sdkroot {
     sdk_info must degrade gracefully for an empty sdkroot -- the DevSDK
     case (configure_get_sdkroot returns {} when the host's bundled headers
