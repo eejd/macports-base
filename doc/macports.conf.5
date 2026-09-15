@@ -258,11 +258,11 @@ T}
 .PP
 rustcache_dir
 .RS 4
-Location of the Rust build cache\&. Holds sccache\*(Aqs object store in
-\fBsccache\fR, the shared vendored crate tree in
-\fBvendor\fR, and the shared linker wrappers in
-\fBcompwrap\fR\&. All of them are cleared by
-\fBport reclaim\fR\&.
+Location of the Rust build cache\&. Holds sccache\(cqs object store in
+sccache, the shared vendored crate tree in
+vendor, and the shared linker wrappers in
+compwrap\&. All of them are cleared by
+port reclaim\&.
 .TS
 tab(:);
 lt lt.
@@ -281,9 +281,8 @@ Maximum size sccache may use\&. Use
 \fIG\fR,
 \fIM\fR, or
 \fIK\fR
-suffix for giga\-, mega\- or kilobytes\&.
-This setting is read when the sccache server starts\&. Before changing it, substitute the configured cache path and stop the existing server with
-\fBenv SCCACHE_DIR=<rustcache_dir>/sccache SCCACHE_SERVER_UDS=<rustcache_dir>/sccache\&.sock sccache \-\-stop\-server\fR\&.
+suffix for giga\-, mega\- or kilobytes\&. This setting is read when the sccache server starts\&. Before changing it, substitute the configured cache path and stop the existing server with
+env SCCACHE_DIR=<rustcache_dir>/sccache SCCACHE_SERVER_UDS=<rustcache_dir>/sccache\&.sock sccache \-\-stop\-server\&.
 .TS
 tab(:);
 lt lt.
@@ -447,6 +446,93 @@ T{
 \fBDefault (10\&.5 and earlier):\fR
 T}:T{
 i386 ppc
+T}
+.TE
+.sp 1
+.RE
+.PP
+xcodeversion
+.RS 4
+Overrides the recorded version of the Xcode command\-line tools, which MacPorts otherwise determines using pkgutil(1)\&. Setting this does not change which tools are actually invoked; it is intended for advanced users working around detection failures\&.
+.TS
+tab(:);
+lt lt.
+T{
+\fBDefault:\fR
+T}:T{
+none (determined automatically)
+T}
+.TE
+.sp 1
+.RE
+.PP
+macosx_sdk_version
+.RS 4
+Version of the macOS SDK to request when building ports, e\&.g\&. "15"\&. This is a request, not a guarantee: if no installed SDK matches exactly, MacPorts falls back to the closest available version\&.
+.TS
+tab(:);
+lt lt.
+T{
+\fBDefault:\fR
+T}:T{
+the major version of the running OS
+T}
+.TE
+.sp 1
+.RE
+.PP
+macosx_deployment_target
+.RS 4
+Minimum macOS version that binaries built by MacPorts should support, e\&.g\&. "15\&.0"\&. Exported to build processes as
+MACOSX_DEPLOYMENT_TARGET\&.
+.TS
+tab(:);
+lt lt
+lt lt.
+T{
+\fBDefault (11 and later):\fR
+T}:T{
+"<major>\&.0" of the running OS
+T}
+T{
+\fBDefault (10\&.15 and earlier):\fR
+T}:T{
+the major version of the running OS
+T}
+.TE
+.sp 1
+.RE
+.PP
+cxx_stdlib
+.RS 4
+C++
+standard library to use with Clang on macOS\&. Most ports requiring
+C++11
+or later force
+libc++
+regardless of this setting, since
+libstdc++
+is not available past the Xcode 4\&.2 SDKs\&.
+.TS
+tab(:);
+lt lt
+lt lt
+lt lt.
+T{
+\fBSupported values:\fR
+T}:T{
+libc++,
+libstdc++
+T}
+T{
+\fBDefault (10\&.6 and later):\fR
+T}:T{
+libc++
+T}
+T{
+\fBDefault (10\&.5 and earlier):\fR
+T}:T{
+libstdc++
 T}
 .TE
 .sp 1
