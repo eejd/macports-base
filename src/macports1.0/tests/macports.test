@@ -20,6 +20,40 @@ source $macports::autoconf::top_srcdir/src/macports1.0/tests/test_setup.tcl
 package require Thread
 
 
+test get_compatible_xcode_versions_macos27 {
+    Regression test for base issue #90: macOS 27 (Darwin 27, first shipped
+    2026) must resolve its own compatibility entry rather than falling
+    through to the default branch's previously-stale 26.0 triple.
+} -setup {
+    set ::_gcxv_saved_macos_version_major $::macports::macos_version_major
+    set ::macports::macos_version_major 27
+} -body {
+    macports::get_compatible_xcode_versions
+} -cleanup {
+    if {[info exists ::_gcxv_saved_macos_version_major]} {
+        set ::macports::macos_version_major $::_gcxv_saved_macos_version_major
+        unset ::_gcxv_saved_macos_version_major
+    }
+} -result {27.0 27.0 27.0}
+
+
+test get_compatible_xcode_versions_unknown_newer_os {
+    An OS major newer than any explicit case must fall through to a
+    default that matches the newest known entry (27.0), not an
+    older/stale one.
+} -setup {
+    set ::_gcxv_saved_macos_version_major $::macports::macos_version_major
+    set ::macports::macos_version_major 99
+} -body {
+    macports::get_compatible_xcode_versions
+} -cleanup {
+    if {[info exists ::_gcxv_saved_macos_version_major]} {
+        set ::macports::macos_version_major $::_gcxv_saved_macos_version_major
+        unset ::_gcxv_saved_macos_version_major
+    }
+} -result {27.0 27.0 27.0}
+
+
 test worker_parallel_jobs_default {
     The build.jobs default can call the shared job calculator from a Portfile worker.
 } -setup {
